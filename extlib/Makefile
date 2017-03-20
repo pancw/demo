@@ -1,11 +1,13 @@
 INSTALLDIR=$(shell pwd)/install
-all: libevent lua bson mongo
+#all: libevent lua bson mongo
+all: libevent lua 
 
 libevent:
 	(cd libevent-2.0.22-stable && ./configure --prefix=$(INSTALLDIR)/libevent && make install)
 
 lua:
-	(cd lua-5.3.3 && make linux && make install INSTALL_TOP=$(INSTALLDIR)/lua)
+	#(cd lua-5.3.3 && make linux && make install INSTALL_TOP=$(INSTALLDIR)/lua)
+	(cd lua-5.1.5 && make linux && make install INSTALL_TOP=$(INSTALLDIR)/lua)
 
 bson:
 	(cd lua-bson && make linux && cp bson.so $(INSTALLDIR)/)

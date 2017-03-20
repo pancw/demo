@@ -18,12 +18,13 @@
 #include <iostream>
 #include <string.h>
 
-namespace engine_base {
+extern "C" {
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+}
 
-	struct cb_user_data {
-		unsigned int vfd;
-		void *p;
-	};
+namespace engine_base {
 
 	extern struct event_base *base;
 	extern void init();

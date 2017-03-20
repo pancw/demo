@@ -14,9 +14,9 @@ LIBEVENT=$(EXTLIB)/libevent/lib/libevent.a $(EXTLIB)/libevent/lib/libevent_core.
 LIBLUA=$(EXTLIB)/lua/lib/liblua.a
 
 FLAG= -g -std=c++11 -m$(MBITS) -Wall -o0
-CPPFLAGS=$(FLAG) -I $(EXTLIB)/lua/include -I $(EXTLIB)/libevent/include
+CPPFLAGS=$(FLAG) -I $(EXTLIB)/lua/include -I $(EXTLIB)/libevent/include -I include
 
-SRC=main.cpp engine_base.cpp
+SRC=main.cpp engine_base.cpp client_mgr.cpp
 OBJ=$(subst .cpp,.o,$(SRC))
 
 ENGINE_BIN=$(ROOT)/bin/game_server
