@@ -23,19 +23,66 @@
 
 namespace mgr {
 
+	const unsigned char StatusReadHeader = 1;
+	const unsigned char StatusReadbody = 2;
+
 	union cb_user_data {
 		unsigned int vfd;
 		void *p;
 	};
 
-//class Client 
-//{
-//
-//};
-//
-//extern std::map<unsigned int, Client*> allClients;
-extern void newUserConnect(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *sock, int socklen, void *user_data);
+class Client 
+{
+public:
+	enum { header_length = 2 };
+	enum { max_body_length = 8192 }; // max:256*256+256
 
+	Client(int fd, unsigned int vfd, struct event_base *evBase);
+	~Client();
+
+	char write_msg[header_length + max_body_length];
+	char read_msg[header_length + max_body_length];
+	size_t m_needByteCnt;
+
+	int get_fd(){
+		return fd;
+	}
+
+	unsigned char get_readStatus(){
+		return this->m_readStatus;
+	}
+	
+	void set_readStatus(unsigned char status){
+		this->m_readStatus = status;
+	}
+
+	bool do_write(const char* line, size_t size){
+		memcpy(this->write_msg + header_length, line, size);                                  
+		// encode header
+		this->write_msg[0] = (unsigned char)(size % 256);
+		this->write_msg[1] = (unsigned char)(size / 256);
+
+		bufferevent_write(this->bev, this->write_msg, header_length + size);    
+		return true;
+	}
+
+	void do_read(struct bufferevent* bufev);
+
+	struct bufferevent * get_bev(){
+		return this->bev;
+	}
+
+private:
+	struct bufferevent *bev;
+	unsigned int vfd;
+	int fd;
+	std::string ip;
+	unsigned char m_readStatus;
+};
+
+extern std::map<unsigned int, Client*> allClients;
+extern void newUserConnect(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *sock, int socklen, void *user_data);
+extern void release();
 
 }
 

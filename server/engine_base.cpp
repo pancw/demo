@@ -87,5 +87,7 @@ namespace engine_base {
 		event_free(signal_event);
 		event_free(timeout);
 		event_base_free(base);
+		
+		mgr::release();
 	}
 }
