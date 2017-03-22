@@ -1,16 +1,46 @@
-msgpack = require "MessagePack"
-lnet = require "lnetlib"
+msgpack = require "common.MessagePack"
 
 CONFIG_TBL = {
 	port = 1228,
 }
 
-function handle_event(vfd, msg)
-	print("====",vfd ,msg)
+function __G__TRACKBACK__(msg)
+	print_error("----------------------------------------\n")
+	print_error("DEBUG ERROR: " .. tostring(msg) .. "\n")
+	print_error(debug.traceback())
+	print_error("\n----------------------------------------")
+end 
+
+function BeforeShutDown()
 end
 
+function OnUserCloseConnect(vfd)
+end
 
 function Tick()
-	--print("lua tick")
-	--lnet.send(1, "lua tick")
 end
+
+function handle_event(vfd, msg)
+	print("====",vfd ,msg)
+	lnet.send(vfd, "haha")
+end
+
+local DOFILELIST = 
+{
+	"base/common_class.lua",
+	"base/class.lua",
+	"base/import.lua",
+	"base/extend.lua",
+	"base/global.lua",
+}
+for _,file in ipairs(DOFILELIST) do
+	dofile(file)
+end
+
+--MONGO_SL.initMongo()
+
+function main()
+	GAME_MAIN.Init()
+end
+
+xpcall(main, __G__TRACKBACK__)

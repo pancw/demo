@@ -115,7 +115,9 @@ void cmd_msg_cb(int fd, short events, void* arg)
 		exit(1);
 	}
 
-	char data[] = "this is a test data.";
+	char data[] = "this is a test data.\
+=======================================!!!!==================================================================================================================================================\
+==========================================oooo===============================================================================================================================================end";
 	unsigned int len = strlen(data);
 	memcpy(msg+2, data, strlen(data));	
 
@@ -130,12 +132,15 @@ void cmd_msg_cb(int fd, short events, void* arg)
 
 void server_msg_cb(struct bufferevent* bev, void* arg)
 {
-	char msg[1024];
+	char msg[10000];
 
-	size_t len = bufferevent_read(bev, msg, sizeof(msg));
+	size_t len = bufferevent_read(bev, msg, 2);
+	size_t needByte = (unsigned char)msg[0] + ((unsigned char)msg[1])*256;
+	len = bufferevent_read(bev, msg, needByte);
+
 	msg[len] = '\0';
 
-	printf("recv %s from server\n", msg);
+	printf("recv:[%s]\n", msg);
 }
 
 
