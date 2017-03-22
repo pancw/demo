@@ -1,0 +1,358 @@
+-- save data
+--local eventTimeTbl = {
+	--[[
+	[eventKey] = {
+		[customKey] = {
+			startTime = *,
+			needTime = *,
+			orgSumTime = *,
+			paramTbl = *,
+			onEventInfo = {
+				moduleName = *,
+				funcName = *,
+			},
+		},
+	}
+	--]]
+--}
+
+local upCBTbl = {
+	--[[
+	[eventKey] = {
+		[customKey] = cb,
+	},
+	--]]
+}
+
+function saveDataOnUpdate() -- ??? no support update
+	--[[local ret = {}
+	for eventKey, tbl in pairs(upCBTbl) do
+		for customKey, cb in pairs(tbl) do
+			CALL_OUT.removeCallOut(cb)
+		end
+	end
+	return ret]]
+end
+
+function loadDataOnUpdate(data)
+end
+
+------------------------------------
+
+local function onTick(eventKey, customKey)
+	local info = leventtimer.getEventTimer(eventKey, customKey)
+
+	local cbInfo = upCBTbl[eventKey]
+	local paramTbl = info.paramTbl
+
+	leventtimer.delEventTimer(eventKey, customKey)
+	cbInfo[customKey] = nil
+
+	local moduleName = info.moduleName
+	local funcName = info.funcName
+
+	local function doFunc()
+		_G[moduleName][funcName](eventKey, customKey, paramTbl)
+	end
+
+	local ret, code = xpcall(doFunc, __G__TRACKBACK__)
+	if not ret then
+		print("on tick error ", code)
+	end
+end
+
+function subEventTime(eventKey, customKey, subTime)
+	local deltaTime = leventtimer.subEventTimer(eventKey, customKey, TIME.osBJSec(), subTime)
+
+	local cb = upCBTbl[eventKey][customKey]
+	CALL_OUT.removeCallOut(cb)
+	cb = CALL_OUT.callOnce(onTick, deltaTime, eventKey, customKey)
+	upCBTbl[eventKey][customKey] = cb
+
+	return deltaTime
+end
+
+function directTriggerEvent(eventKey, customKey)
+	local cb = upCBTbl[eventKey][customKey]
+	CALL_OUT.removeCallOut(cb)
+	onTick(eventKey, customKey)
+end
+
+function getEvent(eventKey, customKey)
+	local ret = leventtimer.getEventTimer(eventKey, customKey)
+	return ret
+end
+
+function hasEvent(eventKey, customKey)
+	return leventtimer.hasEventTimer(eventKey, customKey)
+end
+
+function getEventLeftTime(eventKey, customKey)
+	return leventtimer.getEventLeftTime(eventKey, customKey, TIME.osBJSec()) or 0
+end
+
+function getEventNeedTime(eventKey, customKey)
+	return leventtimer.getEventNeedTime(eventKey, customKey) or 0
+end
+
+function getEventOrgSumTime(eventKey, customKey)
+	return leventtimer.getEventOrgSumTime(eventKey, customKey) or 0
+end
+
+function getEventParamTbl(eventKey, customKey)
+	local eventInfo = getEvent(eventKey, customKey)
+	if not eventInfo then
+		return {}
+	end
+	return eventInfo.paramTbl
+end
+
+function registerCEvent(eventKey, customKey, time, paramUD, onEventInfo)
+	local moduleName = onEventInfo.moduleName
+	local funcName = onEventInfo.funcName
+	local ret = leventtimer.addEventTimer(eventKey, customKey, TIME.osBJSec(), time, paramUD, moduleName, funcName)
+
+	if ret then
+		local cb = CALL_OUT.callOnce(onTick, time, eventKey, customKey)
+		if not upCBTbl[eventKey] then
+			upCBTbl[eventKey] = {}
+		end
+		upCBTbl[eventKey][customKey] = cb
+	end
+end
+
+function removeEvent(eventKey, customKey)
+	leventtimer.delEventTimer(eventKey, customKey)
+
+	local cb = upCBTbl[eventKey][customKey]
+	CALL_OUT.removeCallOut(cb)
+	upCBTbl[eventKey][customKey] = nil
+end
+
+local function getSaveFileName()
+	return string.format("%s/c_event_timer.dat", COMMON.getGlobalDataDir())
+end
+
+function saveData()
+	if SRV_GAME_CONFIG.useMongo() then
+		MONGO_SL.saveEventTimer()
+	else
+		local saveFile = getSaveFileName()
+		leventtimer.saveData(saveFile)
+	end
+end
+
+function tryRestoreUpCallOut(eventKey, customKey, dt)
+	if not upCBTbl[eventKey] then
+		upCBTbl[eventKey] = {}
+	end
+	assert(not upCBTbl[eventKey][customKey])
+	local cb = CALL_OUT.callOnce(onTick, dt, eventKey, customKey)
+	upCBTbl[eventKey][customKey] = cb
+end
+
+function loadData()
+	if SRV_GAME_CONFIG.useMongo() then
+		MONGO_SL.loadEventTimer()
+	else
+		local saveFile = getSaveFileName()
+		leventtimer.loadData(saveFile)
+	end
+end
+
+function afterInitModule()
+	leventtimer.tryRestoreUpCallOut(TIME.osBJSec())
+end
+
+local function checkItemFitAcc(userObj, eventKey, allItemTbl)
+	for itemType, info in pairs(allItemTbl) do
+		for itemId, itemCnt in pairs(info) do
+			local itemObj = userObj:getItemByTypeId(itemType, itemId)
+			if not itemObj then
+				return false
+			end
+			local itemType = itemObj:getItemType()
+			if itemObj:getCount() < itemCnt or not DATA_ITEM.isAccelerateItem(itemType) then
+				return false
+			end
+			local accModule = DATA_ITEM.getItemAccModule(itemType)
+			if accModule ~= COMMON_CONST.ACC_MODULE.ALL and COMMON_CONST.EK_TO_ACC_ITEM[eventKey] ~= accModule then
+				return false
+			end
+		end
+	end
+
+	return true
+end
+
+local function tryNoticeMainCityChange(userObj, eventKey)
+	for buildId, evKey in pairs(COMMON_CONST.BUILD_TO_UPEVENT_TBL) do
+		if evKey == eventKey then
+			userObj:noticeMaincityBuildingChange({[1]=buildId})
+			return
+		end
+	end
+
+	for buildId, evKey in pairs(COMMON_CONST.BUILD_TO_GENEVENT_TBL) do
+		if evKey == eventKey then
+			userObj:noticeMaincityBuildingChange({[1]=buildId})
+			return
+		end
+	end
+
+	for buildId, evKey in pairs(COMMON_CONST.BUILD_TIMER_EVENT) do
+		if evKey == eventKey then
+			userObj:noticeMaincityBuildingChange({[1]=buildId})
+			return
+		end
+	end
+end
+
+local function tryDoFreeAcc(userObj, eventKey, customKey)
+	if COMMON_CONST.EVENT_KIND_TBL[COMMON_CONST.EVENT_KIND.CONSTRUCT_EVENT][eventKey] then
+		return CLS_BUILDING_BASE.tryDoVipFreeUpGradeBuild(userObj, eventKey, customKey)
+	end
+	return false
+end
+
+local function trySubFreeTime(userObj, eventKey, time)
+	if COMMON_CONST.EVENT_KIND_TBL[COMMON_CONST.EVENT_KIND.CONSTRUCT_EVENT][eventKey] then
+		local freeSec = userObj:getBuildFreeTime()
+		return math.max(time - freeSec, 0)
+	end
+	return time 
+end
+
+local function trySetAccNewbieTag(userObj, eventKey)
+	if eventKey == COMMON_CONST.EK_TBL.EK_FINDHERO_W then
+		userObj:trySetNewbie(COMMON_CONST.NEWBIE.ACC_FIND_HERO)
+	end
+end
+
+local function onAccEvent(vfd, eventKey, customKey, useYBTag, itemList, buyItemList)
+	local userObj = USER.queryUserObjByVfd(vfd)
+	if not getEvent(eventKey, customKey) then
+		userObj:tellMeByLanguageId(15211)
+		return
+	end
+
+	if tryDoFreeAcc(userObj, eventKey, customKey) then
+		for_caller.c_accelerate_event(vfd, eventKey, customKey, 0)
+		return
+	end
+
+	if useYBTag == 1 then	--??? no use
+		local leftTime = getEventLeftTime(eventKey, customKey)
+		leftTime = trySubFreeTime(userObj, eventKey, leftTime)
+		if leftTime and leftTime > 0 then
+			local needYb = COMMON_FUNCLIB.calNeedYuanbaoByTime(leftTime)
+			if not userObj:checkCanUseYuanBao( needYb ) then
+				return
+			end
+
+			local realYb, giftYb = userObj:subYuanBao(needYb)
+			LOG.useYBByBuyTime(userObj, realYb, giftYb, eventKey)
+
+			TLOG.moneyFlowSubYb(userObj, needYb, userObj:getYuanBao(), {COMMON_CONST.ITEM_FLOW_TYPE[eventKey] or COMMON_CONST.ITEM_FLOW_TYPE.EK_DEFAULT})
+		end
+		directTriggerEvent(eventKey, customKey)
+		userObj:updateBaseInfo()
+		for_caller.c_accelerate_event(vfd, eventKey, customKey, 0)
+		trySetAccNewbieTag(userObj, eventKey)
+		tryNoticeMainCityChange(userObj, eventKey)
+	else
+		local allItemTbl = {}
+		for _, itemInfo in pairs(itemList) do
+			local itemType = itemInfo.n
+			local itemId = itemInfo.k
+			local itemCnt = itemInfo.v
+			if not allItemTbl[itemType] then
+				allItemTbl[itemType] = {}
+			end
+			allItemTbl[itemType][itemId] = itemCnt
+		end
+
+		for _, itemInfo in pairs(buyItemList) do
+			local itemType = itemInfo.k
+			local itemCnt = itemInfo.v
+			if not BUY_ITEM.tryBuyItem(userObj, itemType, itemCnt) then
+				return
+			end
+			local itemObj = userObj:getItemByType(itemType)
+			local itemId = itemObj:getItemId()
+			if not allItemTbl[itemType] then
+				allItemTbl[itemType] = {}
+			end
+			allItemTbl[itemType][itemId] = itemCnt + (allItemTbl[itemType][itemId] or 0)
+		end
+
+		if not checkItemFitAcc(userObj, eventKey, allItemTbl) then
+			userObj:tellMeByLanguageId(15329)
+			return
+		end
+		local subTime = 0
+		local sumTime = getEventNeedTime(eventKey, customKey)
+		local delList = {}
+		for itemType, info in pairs(allItemTbl) do
+			for itemId, itemCnt in pairs(info) do
+				local itemObj = userObj:getItemByTypeId(itemType, itemId)
+				local time = itemObj:calSubSecByCnt(sumTime, itemCnt)
+				subTime = subTime + time
+				table.insert(delList, {itemObj = itemObj, cnt = itemCnt, })
+				LOG.useItem(userObj, itemObj:getItemType( ), itemCnt, itemObj:getCount() - itemCnt)
+				local itemType = itemObj:getItemType()
+				TLOG.subItem(userObj, nil, itemObj:getItemKind(), itemType, itemCnt, userObj:getItemCnt(itemType) - itemCnt, {COMMON_CONST.ITEM_FLOW_TYPE[eventKey] or COMMON_CONST.ITEM_FLOW_TYPE.EK_DEFAULT})
+			end
+		end
+		userObj:delItemListAndNotice(delList)
+
+		local leftTime = subEventTime(eventKey, customKey, subTime)
+
+		userObj:doHook(COMMON_CONST.HOOK_TYPE.USE_ACC_ITEM, {})
+
+		for_caller.c_accelerate_event(vfd, eventKey, customKey, leftTime)
+
+		tryNoticeMainCityChange(userObj, eventKey)
+
+		for _, itemInfo in pairs(delList) do
+			local itemObj = itemInfo.itemObj
+			HTTP_REPORT.tryReportUseItem(userObj, itemObj:getItemType(), itemInfo.cnt)
+		end
+	end
+end
+
+local function onReqRunningEvent(vfd)
+	local userObj = USER.queryUserObjByVfd(vfd)
+	local eventTbl = userObj:getEventKeyTbl()
+	local tbl = {}
+	for eventKey,info in pairs(eventTbl) do
+		for customKey,_ in pairs(info) do
+			local eventInfo = getEvent(eventKey, customKey)
+			if eventInfo then
+				local ptoTbl = {
+					key = eventKey,
+					customKey = customKey,
+					startTime = eventInfo.startTime,
+					needTime = eventInfo.orgSumTime or eventInfo.needTime,
+					leftTime = getEventLeftTime(eventKey, customKey),
+					paramTblStr = COMMON_FUNCLIB.serialize(eventInfo.paramTbl),
+				}
+				table.insert(tbl, ptoTbl)
+			end
+		end
+	end
+
+	for_caller.c_req_running_event(vfd, tbl)
+end
+
+function __init__()
+	-- temp code
+	for_maker.s_req_event_need_time = function( vfd, key )
+		for_caller.c_req_event_need_time(vfd, key, 12345)
+	end
+
+	for_maker.s_accelerate_event = onAccEvent
+
+	for_maker.s_req_running_event = onReqRunningEvent
+end
+
