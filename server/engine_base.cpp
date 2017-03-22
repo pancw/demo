@@ -25,7 +25,8 @@ namespace engine_base {
 
 	void init()
 	{
-		base = event_base_new();	
+		//base = event_base_new();	
+		base = event_init();	
 		if (!base)
 		{
 			fprintf(stderr, "Coult not initialize libevent!\n");

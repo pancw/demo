@@ -1,0 +1,95 @@
+#include "callout.hpp"
+#include <sys/time.h>
+
+extern lua_State *GlobalL;
+
+namespace y1_callout 
+{
+	static void callLuaCB(callcb_arg_t arg)
+	{
+		int top = lua_gettop(GlobalL);
+		lua_getglobal(GlobalL, "__G__TRACKBACK__");
+
+		lua_getglobal(GlobalL, "CALL_OUT");
+		lua_pushstring(GlobalL, "onFunc");
+		lua_rawget(GlobalL, -2);
+
+		lua_pushnumber(GlobalL, arg.i);
+
+		if (lua_pcall(GlobalL, 1, 0, -4)) 
+		{
+			printf("call multi_cb function failed\n");
+			lua_settop(GlobalL, top);
+			return;
+		}
+		lua_settop(GlobalL, top);
+	}
+
+	typedef unsigned int (*call_func)(unsigned int cbid, callcb cb, callcb_arg_t arg, double timeout);
+
+	static int doCall(lua_State * L, call_func func, callcb cb)
+	{
+		unsigned int cbid = lua_tonumber(L, 1);
+		if (!cbid)
+		{
+			return 0;
+		}
+
+		double timeout = (double)luaL_checknumber(L, 2);
+
+		callcb_arg_t arg;
+		arg.i = cbid;
+
+		func(cbid, cb, arg, timeout);
+		return 0;
+	}
+
+	static int call_once(lua_State * L)
+	{
+		return doCall(L, doCallOnce, callLuaCB);
+	}
+
+	static int call_multi(lua_State * L)
+	{
+		return doCall(L, doCallMuti, callLuaCB);
+	}
+
+	static int rm_call(lua_State * L)
+	{
+		unsigned int handler = luaL_checkint(L, 1);
+		callcb_arg_t arg;
+		if (doRmCall(handler, &arg)) 
+		{
+			lua_pushboolean(L, 1);
+			return 1;
+		}
+		
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+
+	static int _get_sys_time(lua_State *L)
+	{
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+
+		lua_pushnumber(L, tv.tv_sec);
+		lua_pushnumber(L, tv.tv_usec);
+		return 2;
+	}
+
+	const luaL_reg callout[] =
+	{
+		{"call_multi", call_multi},
+		{"call_once", call_once},
+		{"rm_call", rm_call},
+		{"get_sys_time", _get_sys_time},
+		{NULL, NULL}, 
+	};
+
+	void luaopen_calloutlib(lua_State* L)
+	{
+		luaL_register(L, "lcallout", callout);
+	}
+}
+

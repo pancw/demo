@@ -1,0 +1,392 @@
+//$Id$
+#include "comm.hpp"
+#include <assert.h>
+#include <sys/un.h>
+#include "../engine_base.hpp"
+#include "protocol.hpp"
+#include "util.hpp"
+
+extern lua_State *GlobalL;
+
+namespace y1_comm {
+
+	unsigned int globalVfd = 1;
+	std::map<unsigned int, TClient*> AllClients;
+	std::map<unsigned int, TClient *> deactiveClients;
+
+	unsigned char statusReadPackLen = 1;
+	unsigned char statusReadPackData = 2;
+
+	typedef union cb_arg {
+		unsigned int u;
+		void * p;
+	}cb_arg_t;
+
+	bool needCompress = true;
+
+	void NewUser(int fd, short event, void* arg)
+	{
+		struct sockaddr_in addr;
+		int len = sizeof(addr);
+		bzero(&addr, len);
+		char IpAddress[20];
+		bzero(IpAddress, sizeof(IpAddress));
+
+		int UserFd = accept(fd, (struct sockaddr*)&addr, (socklen_t*)&len);
+
+		if ( UserFd < 0 )
+		{
+			char logMsg[100];
+			sprintf(logMsg, "accept error %d %d \n", 0, errno);
+			y1_util::loggingByCStr(logMsg);
+			printf("Accept Error:\n");
+			return;
+		}
+
+		int flags = fcntl(UserFd, F_GETFL, 0);
+		flags |= O_NONBLOCK;
+		fcntl(UserFd, F_SETFL, flags);
+		//int enable = 1;
+		//setsockopt(UserFd, IPPROTO_TCP, TCP_NODELAY, (void*)(&enable), sizeof(enable));
+
+		strncpy(IpAddress, inet_ntoa(addr.sin_addr), sizeof(IpAddress));
+		std::string ClientIp = inet_ntoa(addr.sin_addr);
+
+		if (AllClients.size() > 4000)
+		{
+			char logMsg[100];
+			sprintf(logMsg, "over max client \n");
+			y1_util::loggingByCStr(logMsg);
+			close(UserFd);
+			return;
+		}
+
+		unsigned int vfd = globalVfd;
+		globalVfd ++;
+
+
+		TClient* Client = new TClient(UserFd, vfd, ClientIp);
+		if (!AllClients.insert( std::make_pair(vfd, Client) ).second)
+		{
+			close(UserFd);
+			delete Client;
+			return;
+		}
+	}
+
+	TClient *queryClient(int vfd)
+	{
+		std::map<unsigned int, TClient *>::iterator it;
+		it = AllClients.find(vfd);
+		if (it == AllClients.end())
+		{
+			return NULL; 
+		}
+		return it->second;
+	}
+
+	int HookSend(const xynet::byte *buf, int len, int vfd, bool isPtoHeader)
+	{
+		TClient *client = queryClient(vfd);
+		if (!client)
+		{
+			printf("crit error!!! no client send data1\n");
+			return 0;
+		}
+
+		if (!client->getAliveTag())
+		{
+			return 0;
+		}
+
+		if (needCompress)
+		{ // no need header 2 byte
+			if (!isPtoHeader)
+			{
+				client->SendMsg((unsigned char *)buf, len, true, true);
+			}
+		}
+		else
+		{
+			client->SendMsg((unsigned char *)buf, len, false, false);
+		}
+
+		return 0;
+	}
+
+	static void ClientReadCB(struct bufferevent *bufev, void *_arg)
+	{
+		cb_arg_t arg;
+		arg.p = _arg;
+
+		int vfd = arg.u;
+		TClient *client = queryClient(vfd);
+		if (!client)
+		{
+			printf("crit error!!! no client send data2\n");
+			return;
+		}
+		if (!client->getAliveTag())
+		{
+			return;
+		}
+		else
+		{
+			client->handlePtoRead(bufev);
+		}
+	}
+
+	//disconnect from client
+	static void ClientErrorCB(struct bufferevent *bufev, short flag, void *_arg)
+	{
+		cb_arg_t arg;
+		arg.p = _arg;
+
+		int vfd = arg.u;
+
+		TClient *client = queryClient(vfd);
+		if (client)
+		{
+			client->setAliveTag(false);
+			deactiveClients[vfd] = client;
+		}
+
+		int top = lua_gettop(GlobalL);
+
+		lua_getglobal(GlobalL, "__G__TRACKBACK__");
+		lua_getglobal(GlobalL, "onUserCloseConnect");
+		lua_pushnumber(GlobalL, vfd);
+		int err = lua_pcall(GlobalL, 1, 0, -3);
+		if (err)
+		{
+			printf("onUserCloseConnect error\n");
+		}
+
+		lua_settop(GlobalL, top);
+	}
+
+	void TClient::handlePtoRead(struct bufferevent *bufev)
+	{
+		size_t DataLen = EVBUFFER_LENGTH(EVBUFFER_INPUT(bufev));
+
+		while(DataLen > 0)
+		{
+			if ((m_bufferIdx + m_needByteCnt) >= PTO_BUFFER_SIZE)
+			{
+				printf("critic error pto buffer size is small; must kick out client \n");
+				return; // important error!!!
+			}
+			size_t ReadLen = bufferevent_read(bufev, m_ptoBuffer + m_bufferIdx, m_needByteCnt);
+			if (ReadLen <= 0)
+			{
+				return; // ???
+			}
+			DataLen -= ReadLen;
+			//m_upBytes += ReadLen;
+			m_needByteCnt = m_needByteCnt - ReadLen;
+			m_bufferIdx = m_bufferIdx + ReadLen;
+			if (m_needByteCnt == 0)
+			{
+				if (m_readStatus == statusReadPackLen)
+				{
+					unsigned short pack_len = *(unsigned short *)m_ptoBuffer;
+					m_readStatus = statusReadPackData;
+					m_needByteCnt = pack_len;
+					m_bufferIdx = 0;
+				}
+				else if(m_readStatus == statusReadPackData)
+				{
+					(xynet::ptoManager->unpack_data(GlobalL, (const xynet::byte*)m_ptoBuffer, PTO_BUFFER_SIZE, mvfd));
+					if (!m_isAlive) // lua del this obj
+					{
+						return;
+					}
+
+					m_readStatus = statusReadPackLen;
+					m_needByteCnt = PTO_LEN_DESC_SIZE;
+					m_bufferIdx = 0;
+				}
+			}
+		}
+	}
+
+	TClient::TClient(int fd, unsigned int vfd, std::string ip)
+	{
+		m_readStatus = statusReadPackLen; // read pack len
+		m_needByteCnt = PTO_LEN_DESC_SIZE;
+		//m_upBytes = 0;
+		//m_downBytes = 0;
+		m_bufferIdx = 0;
+		m_ip = ip;
+		m_isAlive = true;
+		mfd = fd;
+		mvfd = vfd;
+		cb_arg_t arg;
+		arg.u = vfd;
+
+		mbev = bufferevent_socket_new(engine_base::game_ev_base, fd, BEV_OPT_CLOSE_ON_FREE);
+		bufferevent_setcb(mbev, ClientReadCB, NULL, ClientErrorCB, arg.p);
+		bufferevent_enable(mbev, EV_READ | EV_WRITE);
+
+		dictionary_init(&mdic);
+	}
+
+	size_t TClient::SendMsg(unsigned char* buf, size_t len, bool IsCompress, bool IsPackageEnd)
+	{
+		if (IsCompress)
+		{
+			size_t ZipLen = 2 * len + 10;
+			unsigned char ZipData[ZipLen];
+			bzero(ZipData, ZipLen);
+			ZipLen = compress(&mdic, buf, len, ZipData, ZipLen, IsPackageEnd);
+			if (ZipLen> 0xFFFF)
+			{
+				printf("too long package:%d %d", len, ZipLen);
+				return 0;
+			}
+			bufferevent_write(mbev, ZipData, ZipLen);
+			//m_downBytes += ZipLen;
+			return ZipLen;
+		}
+		else
+		{
+			return bufferevent_write(mbev, buf, len);
+		}
+	}
+
+	TClient::~TClient()
+	{
+		m_isAlive = false;
+		int Len = EVBUFFER_LENGTH(EVBUFFER_OUTPUT(mbev));
+		if (Len > 0)
+		{
+			evbuffer_unfreeze(mbev->output, 1);
+			if (evbuffer_write(mbev->output, mfd) != Len )
+			{
+				printf("Lost data when destroy client");
+			}
+		}
+		bufferevent_free(mbev);
+		mbev = NULL;
+		//close(mfd);
+		mfd = -1;
+	}
+
+	void trySweepClient()
+	{
+		std::map<unsigned int, TClient *>::iterator it;
+		for (it = deactiveClients.begin(); it != deactiveClients.end(); it ++)
+		{
+			unsigned int vfd = it->first;
+			TClient *client = queryClient(vfd);
+			if (client)
+			{
+				delete client;
+				AllClients.erase(vfd);
+			}
+		}
+		deactiveClients.clear();
+	}
+
+	void release()
+	{
+		trySweepClient();
+
+		std::map<unsigned int, TClient *>::iterator it;
+		for (it = AllClients.begin(); it != AllClients.end(); it ++)
+		{
+			TClient *client = it->second;
+			delete client;
+		}
+		AllClients.clear();
+	}
+
+	static int kickVfd(lua_State * L)
+	{
+		unsigned int vfd = lua_tonumber(L, 1);
+		TClient *client = queryClient(vfd);
+		if (!client)
+		{
+			return 0;
+		}
+		client->setAliveTag(false);
+		deactiveClients[vfd] = client;
+		return 0;
+	}
+
+	static int setForkCopyData(lua_State *L)
+	{
+		if (engine_base::isForkCopying)
+		{
+			return 0;
+		}
+		engine_base::beginForkCopyData = true;
+		return 0;
+	}
+
+	static int clearForkTag(lua_State *L)
+	{
+		engine_base::isForkCopying = false;
+		return 0;
+	}
+
+	/*static int lGetComBytes(lua_State *L)
+	{
+		unsigned int vfd = lua_tonumber(L, 1);
+		TClient *client = queryClient(vfd);
+		if (!client)
+		{
+			return 0;
+		}
+		lua_pushnumber(L, client->getUpBytes());
+		lua_pushnumber(L, client->getDownBytes());
+		return 2;
+	}*/
+
+	static int getLocalIp(lua_State *L)
+	{
+		lua_pushstring(L, engine_base::localIpAddrBuf);
+		return 1;
+	}
+
+	static int lGetClientIp(lua_State *L)
+	{
+		unsigned int vfd = lua_tonumber(L, 1);
+		TClient *client = queryClient(vfd);
+		if (!client)
+		{
+			return 0;
+		}
+		if (client->getIp()->c_str())
+		{
+			lua_pushstring(L, client->getIp()->c_str());
+			return 1;
+		}
+		return 0;
+	}
+
+	static int lGetClientCnt(lua_State *L)
+	{
+		int cnt = AllClients.size();
+		lua_pushnumber(L, cnt);
+		return 1;
+	}
+
+	const luaL_reg net_com[] =
+	{
+		{"kickVfd", kickVfd},
+		{"getClientCnt", lGetClientCnt},
+		{"getClientIp", lGetClientIp},
+		{"getLocalIp", getLocalIp},
+		//{"getComBytes", lGetComBytes},
+		{"setForkCopyData", setForkCopyData},
+		{"clearForkTag", clearForkTag},
+		{NULL, NULL}, 
+	};
+
+	void luaopen_netcomlib(lua_State* L)
+	{
+		luaL_register(L, "lnetcom", net_com);
+	}
+}
+

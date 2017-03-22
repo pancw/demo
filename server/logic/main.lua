@@ -40,7 +40,7 @@ end
 --MONGO_SL.initMongo()
 
 function main()
-	GAME_MAIN.Init()
 end
 
-xpcall(main, __G__TRACKBACK__)
+GAME_MAIN.Init()
+--xpcall(main, __G__TRACKBACK__)

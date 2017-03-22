@@ -1,0 +1,251 @@
+#include "util.hpp"
+
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdarg.h>
+#include <sys/time.h>
+#include <dirent.h>
+
+extern lua_State *GlobalL;
+
+namespace y1_util {
+	using namespace std;
+
+	char LogMsg[LOG_MAXLEN];
+
+	void doTouchDir(const char * PathFile)
+	{
+		struct stat st;
+		if (stat(PathFile, &st) != -1)
+		{
+			return;
+		}
+
+		mkdir(PathFile, 0755);
+		return;
+	}
+
+	bool touchFile(const char * PathFile)
+	{
+		struct stat st;
+		if (stat(PathFile, &st) != -1)
+			return true;
+
+		char TempDir[strlen(PathFile)+1];
+
+		const char * Start = PathFile;
+		const char * Index = NULL;
+		while((Index = strchr(Start, '/')) != NULL)
+		{
+			bzero(TempDir, sizeof(TempDir));
+			strncpy(TempDir, PathFile, Index-PathFile+1);
+			Start = Index+1;
+			mkdir(TempDir, 0755);
+		}
+
+		int fd = open(PathFile, O_WRONLY|O_CREAT, 0644);
+		if (fd != -1)
+		{
+			close(fd);
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	int globalFd = -1;
+	const char *globalFileName = "../log/engine_rec.log";
+	bool loggingByCStr(const char *str)
+	{
+		if (globalFd < 0)
+		{
+			return false;
+		}
+
+		int len = strlen(str);
+		
+		write(globalFd, str, len);
+		return true;
+	}
+
+	static void doLogging(const char * FileName, const char *str, int len)
+	{
+		int Fd = -1;
+		Fd = open(FileName, O_CREAT|O_WRONLY|O_APPEND, 0644);
+		if (Fd < 0)
+		{
+			touchFile(FileName);
+			Fd = open(FileName, O_WRONLY|O_APPEND);
+		}
+		if (Fd < 0)
+		{
+			loggingByCStr("append file failed \n");
+			return;
+		}
+		
+		write(Fd, str, len);
+		close(Fd);
+		return;
+	}
+
+	///////////////////////////////////////////
+	static int ltouch(lua_State *L)
+	{
+		const char *file_name = lua_tostring(L, 1);
+		touchFile(file_name);
+
+		return 0;
+	}
+
+	void logForForkProcess(const char *msg)
+	{
+		int top = lua_gettop(GlobalL);
+		lua_getglobal(GlobalL, "LOG");
+		lua_pushstring(GlobalL, "msgForForkProcess");
+		lua_rawget(GlobalL, -2);
+		if (!lua_isfunction(GlobalL, -1))
+		{
+			lua_settop(GlobalL, top);
+			return;
+		}
+		lua_pushstring(GlobalL, msg);
+		lua_pcall(GlobalL, 1, 0, 0);
+		lua_settop(GlobalL, top);
+	}
+
+	void engineLog(const char *msg)
+	{
+		int top = lua_gettop(GlobalL);
+		lua_getglobal(GlobalL, "LOG");
+		lua_pushstring(GlobalL, "gengine");
+		lua_rawget(GlobalL, -2);
+		if (!lua_isfunction(GlobalL, -1))
+		{
+			lua_settop(GlobalL, top);
+			return;
+		}
+		lua_pushstring(GlobalL, msg);
+		lua_pcall(GlobalL, 1, 0, 0);
+		lua_settop(GlobalL, top);
+	}
+
+	void luaWarning(const char *msg)
+	{
+		int top = lua_gettop(GlobalL);
+		lua_getglobal(GlobalL, "HTTP_REPORT");
+		lua_pushstring(GlobalL, "onGameEngineWarning");
+		lua_rawget(GlobalL, -2);
+		if (!lua_isfunction(GlobalL, -1))
+		{
+			lua_settop(GlobalL, top);
+			return;
+		}
+		lua_pushstring(GlobalL, msg);
+		lua_pcall(GlobalL, 1, 0, 0);
+		lua_settop(GlobalL, top);
+	}
+
+	static int lhasDir(lua_State *L)
+	{
+		const char *file_name = lua_tostring(L, 1);
+		DIR *d = opendir(file_name);
+		if (!d)
+		{
+			lua_pushnumber(L, 0);
+		}
+		else
+		{
+			closedir(d);
+			lua_pushnumber(L, 1);
+		}
+
+		return 1;
+	}
+
+	static int lremoveFile(lua_State *L)
+	{
+		const char *file_name = lua_tostring(L, 1);
+		remove(file_name);
+
+		return 0;
+	}
+
+	static int touchDir(lua_State *L)
+	{
+		const char *file_name = lua_tostring(L, 1);
+		doTouchDir(file_name);
+
+		return 0;
+	}
+
+	unsigned long long getNowUTime()
+	{
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		unsigned long long now = tv.tv_sec*1000000 + tv.tv_usec;
+		return now;
+	}
+
+	static int lgetUTime(lua_State *L)
+	{
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		unsigned long long now = tv.tv_sec*1000000 + tv.tv_usec;
+		lua_pushnumber(L, now);
+		return 1;
+	}
+
+	static int lsystemCMD(lua_State *L)
+	{
+		const char *cmd = lua_tostring(L, 1);
+		system(cmd);
+		return 0;
+	}
+
+	static int llogging(lua_State *L)
+	{
+		const char *file_name = lua_tostring(L, 1);
+		const char *str = lua_tostring(L, 2);
+		int len = lua_tonumber(L, 3);
+
+		doLogging(file_name, str, len);
+
+		return 0;
+	}
+
+	const luaL_reg utillib[] =
+	{
+		{"logging", llogging},
+		{"touch", ltouch},
+		{"touchDir", touchDir},
+		{"removeFile", lremoveFile},
+		{"hasDir", lhasDir},
+		{"systemCMD", lsystemCMD},
+		{"getUTime", lgetUTime},
+		{NULL, NULL}, 
+	};
+
+	void luaopen_utillib(lua_State* L)
+	{
+		luaL_register(L, "lutil", utillib);
+
+		globalFd = open(globalFileName, O_CREAT|O_WRONLY|O_APPEND, 0644);
+		if (globalFd < 0)
+		{
+			touchFile(globalFileName);
+			globalFd = open(globalFileName, O_WRONLY|O_APPEND);
+		}
+		if (globalFd < 0)
+		{
+			printf("open global file failed \n");
+		}
+	}
+}
+

@@ -1,0 +1,266 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <openssl/rsa.h>
+#include <openssl/engine.h>
+#include <openssl/pem.h>
+#include "rsa.hpp"
+
+const char *pkey_str = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC2kcrRvxURhFijDoPpqZ/IgPlA\ngppkKrek6wSrua1zBiGTwHI2f+YCa5vC1JEiIi9uw4srS0OSCB6kY3bP2DGJagBo\nEgj/rYAGjtYJxJrEiTxVs5/GfPuQBYmU0XAtPXFzciZy446VPJLHMPnmTALmIOR5\nDddd1Zklod9IQBMjjwIDAQAB\n-----END PUBLIC KEY-----";
+
+namespace y1_rsaiml
+{
+	size_t calc_decode_len(const char* b64input) { 
+	    size_t len = strlen(b64input), padding = 0;
+
+	    if (b64input[len - 1] == '=' && b64input[len - 2] == '=') {
+		padding = 2;
+	    } else if (b64input[len - 1] == '=') {
+		padding = 1;
+	    }
+
+	    return (size_t) len * 0.75 - padding;
+	}
+
+	int base64_decode(char *b64message, unsigned char **buffer, size_t *len) {
+	    BIO *bio, *b64;
+
+	    int decode_len = calc_decode_len(b64message);
+	    *buffer = (unsigned char *)malloc(decode_len);
+	    if (!*buffer) {
+		fprintf(stderr, "buffer, malloc error\n");
+		return -1;
+	    }
+
+	    bio = BIO_new_mem_buf(b64message, -1);
+	    b64 = BIO_new(BIO_f_base64());
+	    bio = BIO_push(b64, bio);
+
+	    BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); 
+	    *len = BIO_read(bio, *buffer, strlen(b64message));
+	    BIO_free_all(bio);
+
+	    if (*len != decode_len) {
+		return -1;
+	    }
+
+	    return 0; 
+	}
+
+	int verify(char *data, size_t data_len, char *sign, EVP_PKEY *pkey)
+	{
+	    EVP_MD_CTX md_ctx;
+	    const EVP_MD *mdtype;
+	    int err;
+	    char *signature;
+	    size_t signature_len;
+
+	    mdtype = EVP_sha1();
+
+	    base64_decode(sign, (unsigned char **)&signature, &signature_len);
+	    
+	    EVP_VerifyInit(&md_ctx, mdtype);
+	    EVP_VerifyUpdate(&md_ctx, data, data_len);
+	    err = EVP_VerifyFinal(&md_ctx, (unsigned char *)signature, signature_len, pkey);
+	    EVP_MD_CTX_cleanup(&md_ctx);
+
+	    free(signature);
+
+	    if (err == 1) {
+		return 0;
+	    } else {
+		return -1;
+	    }
+	}
+
+	void decrypt(char *src, char **dest, size_t *dest_len, EVP_PKEY *pkey)
+	{
+	    //BIO *bp;
+	    long padding;
+	    int crypted_len, n;
+	    size_t data_len;
+	    char *data, *dest_p, *p, *last, *decrypt_buf;
+	    char buf[128];
+
+	    padding = RSA_PKCS1_PADDING;
+
+	    if (!pkey) {
+		fprintf(stderr, "get public key error\n");
+		return;
+	    }
+
+	    crypted_len = EVP_PKEY_size(pkey);
+	    decrypt_buf = (char *)malloc(crypted_len + 1);
+	    if (!decrypt_buf) {
+		fprintf(stderr, "decrypt_buf, malloc error\n");
+		return;
+	    }
+
+	    base64_decode(src, (unsigned char **)&data, &data_len);
+
+	    *dest = (char *)malloc(data_len);
+	    if (!dest) {
+		fprintf(stderr, "dest, malloc error\n");
+		free(decrypt_buf);
+		return;
+	    }
+	    dest_p = *dest;
+
+	    p = data;
+	    last = data + data_len;
+
+	    *dest_len = 0;
+
+	    do {
+		n = last - p;
+		if (n > 128) {
+		    n = 128;
+		}
+
+		bzero(buf, sizeof(buf));
+		bzero(decrypt_buf, sizeof(decrypt_buf));
+		memcpy(buf, p, n);
+		p += n;
+
+		crypted_len = RSA_public_decrypt(n, (unsigned char *)buf, (unsigned char *)decrypt_buf, pkey->pkey.rsa, padding);
+		if (crypted_len != -1) {
+		    memcpy(dest_p, decrypt_buf, crypted_len);
+		    dest_p += crypted_len;
+		    *dest_len += crypted_len;
+		}
+	    } while (last - p > 0);
+	    *dest_p = 0;
+
+	    free(decrypt_buf);
+	}
+
+	void test()
+	{
+	    BIO *bp;
+	    EVP_PKEY *pkey;
+
+	    bp = BIO_new_mem_buf((void *)pkey_str, -1);
+	    pkey = PEM_read_bio_PUBKEY(bp, NULL, NULL, NULL);
+	    BIO_free(bp);
+
+
+	    char *decrypted_buf;
+	    size_t decrypted_len;
+
+	    char *src = "YFSGlJTpNYakrZuZqZ55dcA5mVUb/JQBr3hdDjODsAVSdoVVytIagk9Wt0CD/uX+7jGL9pqev8/u0I0ZBKEmz5huXp8TdZSnskCZ7GTeHNW0VPJcW8OcBxAValA0jQSv2mBP+tc1r6mdvf66GEzhvgBfTnp3Sp7V3dijJ9bNstIDyrGm/BlByhcMr3UqXjTFJaui6t5TxvZhCuSV9sg+xVVA+sR3uFI78b5lKomg5Vu31EBZvXASlFfaOc4StltRUH2aSiRqjnbXe8dlRZO0Ih44htYs2QfehzeQnPHtTwNHUvtVIVcIdI/7j9yfy5es13QeIgfKghY/ENUnB2V7iA==";
+	    char *sign = "s8XIN2TyC5niX1HFPDXOQj2eRvhW2qMPOdDuuXlOspYhxkjxunV4Ytgcw8GXg761HSbk4e5QsgKpU+vM2ggLhYni2GfXhGBVj/P13B6JhMmdrucU8ktlaH+fJGUmc3rqGMU3qiQgNAh/8PV1BS/5li7qzXHc0tgKL1zRgeu1CVw=";
+	    decrypt(src, &decrypted_buf, &decrypted_len, pkey);
+
+	    if (verify(decrypted_buf, decrypted_len, sign, pkey) == 0) {
+		printf("verify success\n");
+	    }
+	    printf("decrypted string: %s\n", decrypted_buf);
+
+	    free(decrypted_buf);
+
+	    EVP_PKEY_free(pkey);
+	}
+
+	static int lbase64decode(lua_State * L)
+	{
+		const char *b64msg = luaL_checkstring(L, 1);
+		if (!b64msg)
+		{
+			return 0;
+		}
+		size_t len = 0;
+		char *decodeBuf;
+		base64_decode((char *)b64msg, (unsigned char **)&decodeBuf, &len);
+
+		lua_pushlstring(L, (const char *)decodeBuf, len);
+
+		free(decodeBuf);
+		return 1;
+	}
+
+	static int ldecrypt(lua_State * L)
+	{
+		BIO *bp;
+		EVP_PKEY *pkey;
+
+		const char *src_str = luaL_checkstring(L, 1);
+		const char *pkey_str = luaL_checkstring(L, 2);
+		const char *sign = luaL_checkstring(L, 3);
+
+		if ((!src_str) || (!pkey_str) || (!sign))
+		{
+			return 0;
+		}
+
+		bp = BIO_new_mem_buf((void *)pkey_str, -1);
+		pkey = PEM_read_bio_PUBKEY(bp, NULL, NULL, NULL);
+		BIO_free(bp);
+
+		char *decrypted_buf;
+		size_t decrypted_len;
+
+		decrypt((char *)src_str, &decrypted_buf, &decrypted_len, pkey);
+
+		if (verify(decrypted_buf, decrypted_len, (char *)sign, pkey) == 0) 
+		{
+			lua_pushboolean(L, true);
+			lua_pushlstring(L, decrypted_buf, decrypted_len);
+		}
+		else
+		{
+			lua_pushboolean(L, false);
+			lua_pushlstring(L, "", 0);
+		}
+
+		free(decrypted_buf);
+		EVP_PKEY_free(pkey);
+
+		return 2;
+	}
+
+	static int ldecrypt_nov(lua_State * L)
+	{
+		BIO *bp;
+		EVP_PKEY *pkey;
+
+		const char *src_str = luaL_checkstring(L, 1);
+		const char *pkey_str = luaL_checkstring(L, 2);
+		if ((!src_str) || (!pkey_str))
+		{
+			return 0;
+		}
+
+		bp = BIO_new_mem_buf((void *)pkey_str, -1);
+		pkey = PEM_read_bio_PUBKEY(bp, NULL, NULL, NULL);
+		BIO_free(bp);
+
+		char *decrypted_buf;
+		size_t decrypted_len;
+
+		decrypt((char *)src_str, &decrypted_buf, &decrypted_len, pkey);
+
+		lua_pushboolean(L, true);
+		lua_pushlstring(L, decrypted_buf, decrypted_len);
+
+		free(decrypted_buf);
+		EVP_PKEY_free(pkey);
+
+		return 2;
+		//test();
+		//return 0;
+	}
+
+	const luaL_reg rsaiml_func[] =
+	{
+		{"decrypt", ldecrypt},
+		{"base64decode", lbase64decode},
+		{"decrypt_nov", ldecrypt_nov},
+		{NULL, NULL}, 
+	};
+
+	void luaopen_rsaimllib(lua_State* L)
+	{
+		luaL_register(L, "lrsa_iml", rsaiml_func);
+	}
+}

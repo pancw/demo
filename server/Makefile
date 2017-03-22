@@ -16,7 +16,7 @@ LIBLUA=$(EXTLIB)/lua/lib/liblua.a
 FLAG= -g -std=c++11 -m$(MBITS) -Wall -o0
 CPPFLAGS=$(FLAG) -I $(EXTLIB)/lua/include -I $(EXTLIB)/libevent/include -I include
 
-SRC=main.cpp engine_base.cpp client_mgr.cpp
+SRC=main.cpp engine_base.cpp client_mgr.cpp module/dns.cpp module/md5.cpp
 OBJ=$(subst .cpp,.o,$(SRC))
 
 ENGINE_BIN=$(ROOT)/bin/game_server

@@ -1,0 +1,36 @@
+//精度为一秒的心跳控制器。
+#ifndef __CALLOUT_H_
+#define __CALLOUT_H_
+#include "event.h"
+#include <stdlib.h>
+#include <assert.h>
+#include <lua.hpp>
+
+namespace y1_callout {
+	typedef union callcb_arg {
+		unsigned i;
+		void * p;
+	}callcb_arg_t;
+
+	typedef void (*callcb)(callcb_arg_t arg);
+
+	typedef struct _evdata
+	{
+		struct _evdata* next;
+		struct event ev;
+		callcb cb;
+		callcb_arg_t arg;
+		struct timeval tv;
+		unsigned int handler;
+	}evdata;
+
+	int get_total_ev();
+	int get_free_ev();
+	unsigned int doCallOnce(unsigned int, callcb cb, callcb_arg_t arg, double timeout);
+	unsigned int doCallMuti(unsigned int, callcb cb, callcb_arg_t arg, double timeout);
+	bool doRmCall(unsigned int handler, callcb_arg_t *arg); //会回传arg信息.
+
+	void init_callout();
+	void luaopen_calloutlib(lua_State* L);
+}
+#endif//__CALLOUT_H_

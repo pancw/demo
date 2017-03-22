@@ -1,0 +1,26 @@
+#ifndef _UTIL_HPP_
+#define _UTIL_HPP_
+
+#include <map>
+#include <string>
+#include <stdlib.h>
+#include <string.h>
+#include <lua.hpp>
+
+namespace y1_util {
+#define LOG_MAXLEN 1048576
+	void logging(const char * FileName, const char *str, int len);
+	bool loggingByCStr(const char *str);
+	bool touch(const char * PathFile);
+	bool touchDir(const char * PathFile);
+	unsigned long long getNowUTime();
+
+	void luaopen_utillib(lua_State* L);
+	extern void engineLog(const char *);
+	extern void logForForkProcess(const char *);
+	extern void luaWarning(const char *);
+}
+
+
+#endif //_UTIL_HPP_
+

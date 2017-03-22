@@ -1,0 +1,12 @@
+#ifndef _LUARSAIML_HPP_
+#define _LUARSAIML_HPP_
+
+#include <lua.hpp>
+
+namespace y1_rsaiml
+{
+	void luaopen_rsaimllib(lua_State* L);
+}
+
+#endif
+

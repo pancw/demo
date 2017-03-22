@@ -2,6 +2,8 @@
 #include <cstdio>
 #include "engine_base.h"
 #include "client_mgr.h"
+#include "dns.hpp"
+#include "md5.hpp"
 
 extern "C" {
 #include "lua.h"
@@ -39,7 +41,11 @@ static void InitLuaLib()
 	luaL_openlibs(GlobalL);
 	lua_gc(GlobalL, LUA_GCRESTART, 0);
 
+	pack_dns::init_dns();
+
 	mgr::luaopen_netlib(GlobalL);
+	pack_dns::luaopen_dnslib(GlobalL);
+	pack_md5::luaopen_md5lib(GlobalL);
 }
 
 static int ReadConfig(int &port)
@@ -71,6 +77,7 @@ int main(void)
 	engine_base::init();
 	InitLuaLib();
 
+	lua_pushcclosure(GlobalL, error_fun, 0);
 	int err = luaL_loadfile(GlobalL, "main.lua");	
 	if (err)
 	{
@@ -78,7 +85,7 @@ int main(void)
 		return 1;
 	}
 
-	int ret = lua_pcall(GlobalL, 0, 0, 0);
+	int ret = lua_pcall(GlobalL, 0, 0, -2);
 	if (ret)
 	{
 		fprintf(stderr, "call main error:%s\n", lua_tostring(GlobalL, -1));
@@ -92,7 +99,6 @@ int main(void)
 		fprintf(stderr, "read config error:%s\n", lua_tostring(GlobalL, -1));
 		return 1;
 	}
-
 
 	if (engine_base::clientListen(port))
 	{

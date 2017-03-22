@@ -544,3 +544,16 @@ function hasElement(tbl)
 		return true
 	end
 end
+
+local function convertMD5ToHex(md5_code)
+    local sign_tbl = {} 
+    for i = 1, string_len(md5_code) do
+        local s = string.sub(md5_code, i, i)
+        table_insert(sign_tbl, string_format("%02x", string.byte(s)))
+    end  
+    return table_concat(sign_tbl)
+end
+
+function lmd5(str)
+	return convertMD5ToHex(lmd5_sum.md5_sum(str, string.len(str)))
+end

@@ -1,0 +1,10 @@
+
+#ifndef __DNS_H_
+#define __DNS_H_
+
+namespace y1_dns {
+	int init_dns();
+	void luaopen_dnslib(lua_State* L);
+}
+
+#endif//__DNS_H_

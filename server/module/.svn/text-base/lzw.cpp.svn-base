@@ -1,0 +1,185 @@
+//$Id$
+//create by tony 2006-2-7 10:20
+//for lzw compress
+//modified from Mark R. Nelson's LZW data compression/expansion
+//demonstration program which create on 1989
+//开始准备做成动态字典9~12位动态增长
+//后来发现使用动态字典压缩效果并没有显著提高
+//使用12位字典消耗内存过大，故改用11位静态字典，压缩效果比12位差
+//字典使用数组，并不在dictionary_init是动态分配内存
+//不使用动态字典的话目前的字典结构比较浪费空间，很多成员都可以做成全局的
+
+#include <stdlib.h>
+#include <stdio.h>
+#include "lzw.hpp"
+
+#ifdef DMALLOC
+#include <dmalloc.h>
+#endif
+
+static const unsigned int MIN_BITS = 12;//>8
+static const unsigned int MAX_BITS = 12;//<13
+static const unsigned int MAX_DIC_USED_TIMES = 5000;
+#define LOG_CODE(Code) /* do {\
+			if (dic->NeedLog) \
+			{\
+				FILE* fpLog = fopen("log/lzw_code.dat", "a");\
+				fprintf(fpLog, "%04X:%04X\n", dic->CodeCount++, Code);\
+				printf("loging, %04X:%04X\n", dic->CodeCount, Code);\
+				fclose(fpLog);\
+			}\
+		} while(0) */
+
+//初始化字典
+#ifdef __LZW_DEBUG_LOG
+int dictionary_init(Dictionary* dic, bool NeedLog)
+#else
+int dictionary_init(Dictionary*dic)
+#endif
+{
+	dic -> output_bit_buff = 0L;
+	dic -> output_bit_count = 0;
+	dic -> LastCode = 0;
+	dic -> IsNewPackage = true;
+	dictionary_reset(dic);
+#ifdef __LZW_DEBUG_LOG
+	dic -> NeedLog = false;
+	if ( NeedLog )
+	{
+		dic -> CodeCount = 0;
+		dic -> NeedLog = true;
+	}
+#endif
+	return 0;
+}
+int dictionary_reset(Dictionary* dic)
+{
+	dic -> next_code = 256;
+	for (unsigned int i = 0; i < TABLE_SIZE; i++)  /* Clear out the string table before starting */
+		dic -> code_value[i] = -1;
+	dic -> BITS = MAX_BITS;
+	dic -> HASHING_SHIFT = dic->BITS-8;
+	dic -> MAX_VALUE = (1 << dic->BITS) - 1;
+	dic -> MAX_CODE = dic->MAX_VALUE - 1;
+	dic -> DIC_USED_TIMES_COUNT = 0;
+	return 0;
+}
+
+/*
+** This is the hashing routine.  It tries to find a match for the prefix+char
+** string in the string table.  If it finds it, the index is returned.  If
+** the string is not found, the first available index in the string table is
+** returned instead.
+*/
+int find_match(Dictionary* dic, unsigned int hash_prefix,unsigned char hash_character)
+{
+	int index;
+	int offset;
+
+	index = ((unsigned int)hash_character << (dic->HASHING_SHIFT)) ^ hash_prefix;
+	if (index == 0)
+		offset = 1;
+	else
+		offset = TABLE_SIZE - index;
+	while (1)
+	{
+		if (dic -> code_value[index] == -1)
+			return(index);
+		if (dic -> prefix_code[index] == hash_prefix && dic -> append_character[index] == hash_character)
+			return(index);
+		index -= offset;
+		if (index < 0)
+			index += TABLE_SIZE;
+	}
+}
+
+/*
+** This is the compression routine.  The code should be a fairly close
+** match to the algorithm accompanying the article.
+**
+*/
+#define INPUT_CODE_AND_FLUSH_BUF(CODE)	\
+	do		\
+	{		\
+		dic->output_bit_buff |= (unsigned int) (CODE) << (32 - dic -> BITS - dic->output_bit_count);	\
+		dic->output_bit_count += dic -> BITS;	\
+		LOG_CODE(CODE);	/*for debug */		\
+		while (dic->output_bit_count >= 8)	\
+		{					\
+			if ( j >= size_output )		\
+				return -1;/*not enough output buffer*/		\
+			output[j++] = 0xFF & (dic->output_bit_buff >> 24);	\
+			dic->output_bit_buff <<= 8;	\
+			dic->output_bit_count -= 8;	\
+		}					\
+	}while(0)
+//end define
+int compress(Dictionary* dic, const unsigned char* input, unsigned int size_input, unsigned char* output, unsigned int size_output, bool IsPackageEnd)
+{
+	unsigned char character;
+	unsigned int index;
+	unsigned int i = 0, j = 0;
+	if (dic->IsNewPackage)
+	{
+		dic->IsNewPackage = false;
+		dic->LastCode = input[0];
+		i = 1;
+	}
+/*
+** This is the main loop where it all happens.  This loop runs util all of
+** the input has been exhausted.  Note that it stops adding codes to the
+** table after all of the possible codes have been defined.
+*/
+	for (; i < size_input; i++ )
+	{
+		character = input[i];
+		index = find_match(dic, dic->LastCode,character);/* See if the string is in */
+		if (dic -> code_value[index] != -1)            /* the table.  If it is,   */
+		{
+			dic->LastCode = dic -> code_value[index];        /* get the code value.  If */
+		}
+		else                                    /* the string is not in the*/
+		{                                       /* table, try to add it.   */
+			if (dic -> next_code <= dic->MAX_CODE)
+			{
+				dic -> code_value[index] = dic -> next_code++;
+				dic -> prefix_code[index] = dic->LastCode;
+				dic -> append_character[index] = character;
+			}
+			else
+			{
+				if ( dic -> DIC_USED_TIMES_COUNT > MAX_DIC_USED_TIMES )
+				{
+					dictionary_reset(dic);
+				}
+				else
+				{
+					dic -> DIC_USED_TIMES_COUNT += 1;
+				}
+			}
+			INPUT_CODE_AND_FLUSH_BUF(dic->LastCode);
+			dic->LastCode = character;
+		}
+	}
+	//output the end code
+	if ( IsPackageEnd )
+	{
+		/* Output the last code*/
+		INPUT_CODE_AND_FLUSH_BUF(dic->LastCode);
+		INPUT_CODE_AND_FLUSH_BUF(dic->MAX_VALUE);
+		 /* This code flushes the output buffer*/
+		if ( dic->output_bit_count )
+		{
+			if ( j >= size_output )
+			{
+				return -1;//not enough output buffer
+			}
+			output[j++] = 0xFF & (dic->output_bit_buff >> 24);
+		}
+		dic->output_bit_buff = 0L;
+		dic->output_bit_count = 0;
+		dic->IsNewPackage = true;
+		dic->LastCode = 0;
+	}
+	return j;
+}

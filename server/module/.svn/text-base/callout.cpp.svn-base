@@ -1,0 +1,126 @@
+#include <strings.h>
+#include "callout.hpp"
+#include "hash.hpp"
+
+using namespace y1_hash;
+namespace y1_callout {
+
+	struct ev_manager_t{
+		evdata* evdata_header;
+		int total_evdata;
+		int free_evdata;
+	}ev_manager;
+
+	int get_total_ev()
+	{
+		return ev_manager.total_evdata;
+	}
+
+	int get_free_ev()
+	{
+		return ev_manager.free_evdata;
+	}
+
+	static evdata* new_evdata()
+	{
+		evdata* ret = NULL;
+		if(ev_manager.evdata_header)
+		{
+			ret = ev_manager.evdata_header;
+			ev_manager.evdata_header = ret->next;
+			ev_manager.free_evdata--;
+		}
+		else
+		{
+			ret = (evdata * )malloc(sizeof(evdata));
+			assert(ret);
+			bzero(ret, sizeof(evdata));
+			ev_manager.total_evdata++;
+		}
+		return ret;
+	}
+
+	static void free_evdata(evdata* ptr)
+	{
+		ptr->next = ev_manager.evdata_header;
+		ev_manager.evdata_header = ptr;
+		ev_manager.free_evdata++;
+	}
+
+	hash_table * call_hash; 
+
+	void init_callout()
+	{
+		call_hash = init_hash_table(65536);	// 把hash表开大一点这样可以减少冲突
+		bzero(&ev_manager, sizeof(ev_manager));
+	}
+
+	static void _oncecb(int fd, short event, void * arg)
+	{
+		evdata * ed = (evdata *)arg;
+		delete_inode(call_hash, ed->handler);
+		ed->cb(ed->arg);
+		free_evdata(ed);
+	}
+
+#define GetSec(timeout) ((int)(timeout))
+#define GetuSec(timeout) ((int)(((timeout) - (int)(timeout)) * 1000000))
+	//timeout秒之后执行一次cb()
+	unsigned int doCallOnce(unsigned int cbid, callcb cb, callcb_arg_t arg, double timeout)
+	{
+		evdata * ed = new_evdata();
+		ed->cb = cb;
+		ed->arg = arg;
+		ed->handler = cbid;
+		ed->tv.tv_sec = GetSec(timeout);
+		ed->tv.tv_usec = GetuSec(timeout);
+
+		evtimer_set(&(ed->ev), _oncecb, (void *)ed);
+		evtimer_add(&(ed->ev), &(ed->tv));
+
+		insert_inode(call_hash, ed->handler, (void *)ed);
+		
+		return ed->handler;
+	}
+
+	static void _multicb(int fd, short event, void * _ed)
+	{
+		evdata * ed = (evdata *)_ed;
+		evtimer_set(&(ed->ev), _multicb, (void *)ed);
+		evtimer_add(&(ed->ev), &(ed->tv)); //再加一次。
+		ed->cb(ed->arg);
+	}
+
+	//以timeout的频率执行多次
+	unsigned int doCallMuti(unsigned int cbid, callcb cb, callcb_arg_t arg, double timeout)
+	{
+		evdata * ed = new_evdata();
+		ed->cb = cb;
+		ed->arg = arg;
+		ed->handler = cbid;
+		ed->tv.tv_sec = GetSec(timeout);
+		ed->tv.tv_usec = GetuSec(timeout);
+		evtimer_set(&(ed->ev), _multicb, (void *)ed);
+		evtimer_add(&(ed->ev), &(ed->tv));
+
+		insert_inode(call_hash, ed->handler, (void *)ed);
+		return ed->handler;
+	}
+
+	bool doRmCall(unsigned int handler, callcb_arg_t * arg)
+	{
+		void *p;
+		if (!find_inode(call_hash, handler, &p)) {
+			return false;
+		}
+
+		evdata * ed = (evdata*)p;
+		assert(handler == ed->handler);
+		evtimer_del(&(ed->ev));
+		delete_inode(call_hash, ed->handler);
+		*arg = ed->arg;
+		free_evdata(ed);
+		return true; //将参数返回给调用方.
+	}
+}
+
