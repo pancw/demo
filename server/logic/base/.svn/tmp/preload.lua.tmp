@@ -1,0 +1,161 @@
+local table=table
+local math=math
+local pairs=pairs
+
+BootTime = nil
+
+for_maker = {} 
+for_caller = {} 
+
+rpc_caller = {}
+rpc_maker = {}
+
+rfc_func = {}
+-- contains all the netowrk objects of user-defined type by *.pto.
+-- you can clone object by NET.Clone ("type-name")
+
+os.exit = nil 
+
+local function OnStart()
+	BootTime = os.time()
+	sys = sys or {}
+	sys.path = sys.path or {}
+	table.insert(sys.path,posix.getcwd())
+
+	local random_num = os.time()+17423987
+	math.randomseed(random_num)
+end
+
+OnStart()
+
+--------------------------------------- global func for engine
+function __G__TRACKBACK__(msg)
+	print("server lua error", msg)
+	local errInfo, btInfo = SafeY1Except(msg)
+	LOG.serverError(btInfo)
+end
+
+function BeforeShutDown()
+	USER.saveAllData()
+end
+
+function GenAutoCode(Action)
+	if not Action then
+		print("Pls specify action")
+		return
+	end
+
+	if Action == "netpconf" then
+		CreateNetWorkConf ()
+	end
+end
+
+function EngineReset()
+end
+
+function PerformGC()
+end
+
+function getServerConfig()
+	return SRV_GAME_CONFIG.getServerConfig()
+end
+
+function getCompressPto()
+	return SRV_GAME_CONFIG.getCompressPto()
+end
+
+function onUserCloseConnect(vfd)
+	USER.tryUserLogout(vfd)
+end
+
+function onRFCCall(rfcName, hostid, ...)
+	local func = rfc_func[rfcName]
+	if not func then
+		print("no rfc func iml", rfcName)
+		return
+	end
+	func(hostid, ...)
+end
+
+-- IMPORTANT 协议接收总入口函数
+
+local function doPto(ptoName, vfd, ...)
+	local userObj = USER.queryUserObjByVfd(vfd)
+	if (not userObj) and (ptoName ~= "s_user_login") then
+		return
+	end
+	PROFILE.ptoHead(vfd, ptoName)
+	PROFILE.beginCountFunCall()
+	print("pro:", ptoName, ...)
+	for_maker[ptoName](vfd, ...)
+	PROFILE.endCountFunCall()
+	PROFILE.ptoTail(vfd, ptoName, ...)
+
+	--RFC_CO.releaseSelfCo()
+end
+
+function __ProtocolMessageDispatch(ptoName, vfd, ...)
+	--[[local coObj = RFC_CO.clsCoroutine:New(doPto)
+	coObj:run(ptoName, vfd, ...)]]
+	doPto(ptoName, vfd, ...)
+end
+
+function __RPCMessageDispatch(rpcName, hostid, ...)
+	rpc_maker[rpcName](hostid, ...)
+end
+
+function onRFCSrvConnectStatus(globalHostId, status)
+	RFC_MGR.onRFCSrvConnectStatus(globalHostId, status)
+end
+
+function onRPCSrvConnectStatus(globalHostId, status)
+	RPC_MGR.onRPCSrvConnectStatus(globalHostId, status)
+end
+
+function onHttpRequest(reqInfo, paramTbl, ip)
+	dofile("base/debug.lua")
+	return HTTP_WIZ.onHttpRequest(reqInfo, paramTbl, ip)
+end
+
+-- eio callback
+function onEIOOpenFileCallback(fileName, fd)
+	EIO_BASE.onOpenFile(fileName, fd)
+end
+
+function onEIOCloseFileCallback(fileName)
+	EIO_BASE.onCloseFile(fileName)
+end
+
+function onEIOReadLuaFileCallback(fileName, fileModule)
+	local data = fileModule()
+	EIO_BASE.onReadLuaFile(fileName, data)
+end
+
+function onEIOWriteFileCallback(fileName)
+	EIO_BASE.onWriteFile(fileName)
+end
+--
+
+------------------------------------
+
+local DOFILELIST = 
+{
+	"common/common_class.lua",
+	"base/class.lua",
+	"base/import.lua",
+	"base/extend.lua",
+	"base/linecache.lua",
+	"base/traceback.lua",
+	"base/ldb.lua",
+	"base/global.lua",
+	"base/initnetwork.lua",
+}
+dofile("base/debug.lua")
+
+for _,file in ipairs(DOFILELIST) do
+	dofile(file)
+end
+
+GAME_MAIN.initGame()
+GAME_MAIN.main()
+

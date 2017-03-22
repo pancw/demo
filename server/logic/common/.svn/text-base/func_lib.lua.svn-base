@@ -1,0 +1,1844 @@
+local math_floor = math.floor
+local math_ceil = math.ceil
+local math_random = math.random
+local math_pow = math.pow
+
+local table_insert = table.insert
+local table_concat = table.concat
+
+local string_format = string.format
+local string_len = string.len
+local string_gsub = string.gsub
+
+local loadstring = loadstring
+local tonumber = tonumber
+local tostring = tostring
+
+function serialize(t) -- 只支持 number 或 string 做 key ，但是 value 可以是一个 table ，并支持循环引用
+	local mark={}
+	local assign={}
+	
+	local function ser_table(tbl,parent)
+		mark[tbl]=parent
+		local tmp={}
+		for k,v in pairs(tbl) do
+			local keyType = type(k)
+			local valueType = type(v)
+
+			local key = k
+			if keyType=="number" then
+				key = string_format('[%s]', k)
+			elseif keyType=="string" and tonumber(k) then
+				key = string_format('[\"%s\"]', k)
+			end
+
+			if valueType=="table" then
+				local dotkey= parent..(keyType=="number" and key or "."..key)
+				if mark[v] then
+					local ele = string_format('%s=%s', dotkey,mark[v])
+					table_insert(assign,ele)
+				else
+					table_insert(tmp, key.."="..ser_table(v,dotkey))
+				end
+			elseif valueType == "string" then
+				local ele = string_format('%s=\"%s\"', key,v)
+				table_insert(tmp, ele)
+			elseif valueType == "boolean" then
+				local ele = string_format('%s=%s', key,tostring(v))
+				table_insert(tmp, ele)
+			else
+				local ele = string_format('%s=%s', key,v)
+				table_insert(tmp, ele)
+			end
+		end
+		return string_format('{%s}', table_concat(tmp,","))
+	end
+ 	return string_format('do local ret=%s%s return ret end', ser_table(t,"ret"), table_concat(assign," "))
+end
+
+function unserialize(str)
+	local ret = loadstring(str)
+	if ret then
+		return ret() 
+	end
+end
+
+function convertMD5ToHex(md5_code)
+	local sign_tbl = {}
+	for i = 1, string_len(md5_code) do
+		local s = string.sub(md5_code, i, i)
+		table_insert(sign_tbl, string_format("%02x", string.byte(s)))
+	end
+	return table_concat(sign_tbl)
+end
+
+function randomByList(srcList, startIdx, endIdx, cnt, filter)
+	startIdx = startIdx or 1
+	endIdx = endIdx or table.maxn(srcList)
+
+	local list = {} 
+	for idx = startIdx, endIdx do
+		local value = srcList[idx]
+		if (not filter) or filter(value) then
+			table_insert(list, value)
+		end
+	end
+
+	local ret = {}
+	for i = 1, cnt do
+		local len = table.maxn(list)
+		if len <= 0 then
+			return ret
+		end
+		local idx = math_random(1, len)
+		local temp = list[idx]
+		list[idx] = list[len]
+		list[len] = temp
+
+		table_insert(ret, list[len])
+		table.remove(list)
+	end
+	return ret
+end
+
+function randomByNum(startNum, endNum, cnt, filter)
+	local list = {}
+	for i = startNum, endNum do
+		table_insert(list, i)
+	end
+	return randomByList(list, nil, nil, cnt, filter)
+end
+
+---------------------------- slice run
+
+local function pairs_orderly(tbl, comp)
+	local keys = {}
+	table.foreach(tbl, function (k,v) table_insert(keys, k) end)
+	table.sort(keys, comp)
+	local keys_count = #keys
+	local index = 0
+	local next_orderly = function(tbl)
+		index = index + 1
+		if index > keys_count then return end
+		return keys[index], tbl[keys[index]]
+	end
+	return next_orderly, tbl
+end
+
+function encodeURL(s)
+	s = string_gsub(s, "([^%w%.%- ])", function(c) return string_format("%%%02X", string.byte(c)) end)
+	return string_gsub(s, " ", "+")
+end
+
+function decodeURL(s)
+	s = string_gsub(s, '%%(%x%x)', function(h) return string.char(tonumber(h, 16)) end)
+	return s
+end
+
+function listFindPosByValue(list, start_idx, end_idx, value, cmp_func) -- 定义是一个从小到大的表 小于0代表小于
+	local len = table.maxn(list)
+	if len <= 0 then
+		return 1
+	end
+
+	if (start_idx == end_idx) then
+		if (cmp_func(value, list[start_idx]) <= 0) then
+			return start_idx
+		else
+			return (start_idx + 1)
+		end
+	else
+		if (cmp_func(value, list[start_idx]) <= 0) then
+			return start_idx
+		elseif (cmp_func(value, list[end_idx]) >= 0) then
+			return (end_idx + 1)
+		else
+			local mid_idx = math_floor((start_idx + end_idx)/2)
+			if (mid_idx == start_idx) then
+				return (start_idx + 1)
+			else
+				local cmp_num = cmp_func(value, list[mid_idx])
+				if cmp_num == 0 then
+					return mid_idx
+				elseif cmp_num < 0 then
+					return listFindPosByValue(list, start_idx, mid_idx - 1, value, cmp_func)
+				else
+					return listFindPosByValue(list, mid_idx + 1, end_idx, value, cmp_func)
+				end
+			end
+		end
+	end
+end
+
+function getServerIdByPort(port)
+	return port - COMMON_CONST.SERVER_BASE_PORT
+end
+
+-- argList = {
+-- 	[1] = lanId,
+-- 	[2] = args1,	
+-- 	[3] = args2,
+-- 	...	
+-- }
+
+function getFormatLanguageStr(argList)
+	argList[1] = LANGUAGE.getStringById(tonumber(argList[1]))
+	local msg = argList[1]
+	if #argList > 1 then
+		msg = string_format(unpack(argList))
+	end
+	return msg
+end
+
+function convFormatLanguageTbl(strTbl)
+	if not IsTable(strTbl) then
+		return strTbl
+	end
+	local strList = table.copy(strTbl)
+	for k,v in pairs(strList) do
+		if IsTable(v) then
+			strList[k] = getFormatLanguageStr(v)
+		end
+	end
+	return getFormatLanguageStr(strList)
+end
+
+function convFormatLanguageString(str)
+	local retTbl = unserialize(str)
+	if retTbl then
+		return convFormatLanguageTbl(retTbl)
+	else
+		return str
+	end
+end
+
+function getLanguageFmtDataByTbl(tbl)
+	local function formatLanTbl(tbl)
+		local convTbl = {}
+		for _,langData in ipairs(tbl) do
+			if IsTable(langData) then
+				table_insert(convTbl, formatLanTbl(langData))
+			else
+				table_insert(convTbl, langData)
+			end
+		end
+
+		local langId = table.remove(convTbl, 1)
+		local langData = LANGUAGE.getStringById(tonumber(langId))
+
+		if langData.Order then
+			local orderArg = {}
+			for idx,order in ipairs(langData.Order) do
+				table_insert(orderArg, convTbl[order])
+			end
+			return string_format(langData.Txt, unpack(orderArg))
+		else
+			return string_format(langData, unpack(convTbl))
+		end		
+	end
+	
+	return formatLanTbl(tbl)
+end
+
+function getLanguageFmtData(str)
+	local retTbl = unserialize(str)
+
+	if retTbl then
+		return getLanguageFmtDataByTbl(retTbl)
+	else
+		return str
+	end
+end
+
+function hasElement(tbl)
+	local k, v = next(tbl, nil)
+	if not k then
+		return false
+	else
+		return true
+	end
+end
+
+function randomList(list, cnt)
+	local copyList = {}
+	for k, v in pairs(list) do
+		copyList[k] = v
+	end
+
+	local ret = {}
+	for i = 1, cnt do
+		local maxCnt = table.maxn(copyList)
+		local idx = math_random(1, maxCnt)
+		table_insert(ret, copyList[idx])
+		table.remove(copyList, idx)
+	end
+	return ret
+end
+
+function getMaxValueKeyByTbl(tbl)
+	local mK, mV = nil, nil
+	for k, v in pairs(tbl) do
+		if not mK or v >= mV then
+			mK = k
+			mV = v
+		end
+	end
+	return mK
+end
+
+function isInRect(x, y, px, py, range)
+	local x1 = px - range
+	local x2 = px + range
+	local y1 = py - range
+	local y2 = py + range
+	if x >= x1 and x <= x2 and y >= y1 and y <= y2 then
+		return true
+	else
+		return false
+	end
+end
+
+function calTilePosByWorldPos(wx, wy)
+	wy = wy - COMMON_CONST.Y_CONVERT_OFF
+	wx = wx - COMMON_CONST.X_CONVERT_OFF
+	local tileX = math_floor(wx/COMMON_CONST.tileWidth - wy/COMMON_CONST.tileHeight)
+	local tileY = math_floor(wx/COMMON_CONST.tileWidth + wy/COMMON_CONST.tileHeight)
+	return tileX, tileY
+end
+
+local local_floor = math_floor
+local argWidth,argHeight = 1.0/COMMON_CONST.chunkWidth, 1.0/COMMON_CONST.chunkHeight
+function getChunkPosByPos( x,y )
+	return local_floor(x * argWidth), local_floor(y * argHeight)
+end
+
+function getBlockPosByPos(x, y)
+	local bx = math_floor(x / COMMON_CONST.xBlockWidth)
+	local by = math_floor(y / COMMON_CONST.yBlockHeight)
+	return bx, by
+end
+
+function getChunkIdxByPos(x, y)
+	local chunkX, chunkY = getChunkPosByPos( x,y )
+	return chunkX + 1, chunkY + 1
+end
+
+function calMoveGridPosByWorldPos(wx, wy)
+	local x = math_floor((wx + (COMMON_CONST.moveGrideWidth/2)) / COMMON_CONST.moveGrideWidth)
+	local y = math_floor((wy + (COMMON_CONST.moveGrideHeight/2)) / COMMON_CONST.moveGrideHeight)
+	return x, y
+end
+
+function calTileCenterPosByWorldPos(wx, wy)
+	local tileX, tileY = calTilePosByWorldPos(wx, wy)
+
+	local createx = (tileY + tileX) * (COMMON_CONST.tileWidth/2) + COMMON_CONST.tileWidth /2
+	local createy = (tileY - tileX) * (COMMON_CONST.tileHeight/2)
+	return createx + COMMON_CONST.X_CONVERT_OFF, createy + COMMON_CONST.Y_CONVERT_OFF
+end
+
+function calTileCenterPosByTilePos(tx, ty)
+	local createx = (ty + tx) * (COMMON_CONST.tileWidth/2) + COMMON_CONST.tileWidth /2
+	local createy = (ty - tx) * (COMMON_CONST.tileHeight/2)
+	return createx + COMMON_CONST.X_CONVERT_OFF, createy + COMMON_CONST.Y_CONVERT_OFF
+end
+
+local degreeToDirTbl = {
+	[1] = CONST.FACE_RO,
+	[2] = CONST.FACE_TP,
+	[3] = CONST.FACE_LT,
+	[4] = CONST.FACE_LF,
+	[5] = CONST.FACE_LB,
+	[6] = CONST.FACE_BT,
+	[7] = CONST.FACE_RB,
+}
+
+function getDirByDegree(degree)
+	local idx = math_floor(degree / 22.5)
+	if idx == 0 or idx == 15 then
+		return CONST.FACE_RT
+	end
+
+	idx = math_ceil(idx / 2)
+	return degreeToDirTbl[idx]
+end
+
+function getDirByPos(sx, sy, dx, dy)
+	local dx, dy = dx - sx, dy - sy 
+	local degree = GEOMETRY.getDegreeByDelta(dx, dy)
+	return getDirByDegree(degree)
+end
+
+function getHeroFinalSkillType(heroSkillType, treasureSkillType)
+	return heroSkillType, treasureSkillType
+end
+
+function getHeroSkillTbl(heroSkillType, treasureSkillType)
+	local ret = {}
+	local heroSkill = DATA_HERO_SKILL.getSkillById(heroSkillType)
+	local treasureSkill = DATA_HERO_SKILL.getSkillById(treasureSkillType)
+
+	if heroSkill and treasureSkill then
+
+		local effectIds = {}
+		for effectId, value in pairs(heroSkill.SkillEffect) do
+			effectIds[effectId] = value
+		end
+		for effectId, value in pairs(treasureSkill.SkillEffect) do
+			if not effectIds[effectId] or value > effectIds[effectId] then
+				effectIds[effectId] = value
+			end
+		end
+		ret = DATA_HERO_SKILL.getSkillTblByEffectIds(effectIds)
+
+	elseif heroSkill then
+		ret = table_deepcopy(heroSkill.AttrTbl)
+	elseif treasureSkill then
+		ret = table_deepcopy(treasureSkill.AttrTbl)
+	end
+	return ret
+end
+
+function getHeroSkill(heroInfo)
+	-- body
+	local heroTreasureLuck = DATA_HERO_BASE.getHeroTreasureLuck() 
+	if heroTreasureLuck then
+		local treasureType = DATA_CENTER.directGetItemTypeById(heroInfo.treasureId) 
+		if treasureType then
+			local dataInfo = DATA_ITEM.GetItemInfo(treasureType)
+			if dataInfo.LuckID == heroTreasureLuck then
+				return DATA_TREASURY_LUCK.getLuckSkillId(dataInfo.LuckID) or heroInfo.heroSkillType
+			end
+		end
+	end
+	return heroInfo.heroSkillType
+end
+
+-- 直接获取技能效果
+function getHeroSkillEffectByEffectType(heroInfo, effecType)
+	if heroInfo then
+		local skillTbl = getHeroSkillTbl(getHeroSkill(heroInfo), heroInfo.treasureSkillType)
+		return skillTbl[effecType]
+	end
+end
+-- 英雄技能征兵数量加成
+local function getHeroSkillExtra(skillTbl, soldierType)
+	if not skillTbl then
+		return 0
+	end
+
+	local kv = {
+		[1] = "add_infantry_num",
+		[2] = "add_bowman_num",
+		[3] = "add_rider_num",
+		[4] = "add_weapon_num",
+	}
+	local extra = 0
+	local kind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	if kv[kind] then
+		extra = skillTbl[kv[kind]] or 0
+	end
+	return extra
+end
+
+-- 英雄技能征兵时间缩短
+local function getHeroSkillShorten(skillTbl, soldierType)
+	if not skillTbl then
+		return 0
+	end
+
+	local kv = {
+		[1] = "cut_infantry_time",
+		[2] = "cut_bowman_time",
+		[3] = "cut_rider_time",
+		[4] = "cut_weapon_time",
+	}
+	local extra = 0
+	local kind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	if kv[kind] then
+		extra = skillTbl[kv[kind]] or 0
+	end
+	return extra
+end
+
+-- 征兵数武将加成 
+local function getHeroGenSoldierRate(heroInfo, soldierType)
+	local charm = heroInfo and heroInfo.charm or 0
+	local skillTbl = heroInfo and heroInfo.skillTbl
+	local SkillExtra = getHeroSkillExtra(skillTbl, soldierType)
+	return (0.00214 * math_pow(charm,2) + 0.05854 * charm) / 100 + SkillExtra
+end
+
+local function calHeroGenSoldierAddRate(heroInfoList, soldierType, sumRate)
+	sumRate = sumRate or 0
+	for _, heroInfo in pairs(heroInfoList) do
+		local heroRate = getHeroGenSoldierRate(heroInfo, soldierType) 
+		sumRate = sumRate + heroRate 
+	end
+	return sumRate
+end
+
+--npc城池最大征兵数
+function getNpcCityBuildGenMaxSoldierCnt(heroInfoList, soldierType, sumRate)
+	weatherRate = weatherRate or 0
+	local baseAmount = 1000
+	local addAmount = baseAmount * calHeroGenSoldierAddRate(heroInfoList, soldierType, sumRate)
+	return math_floor(baseAmount + addAmount)
+end
+
+-- 英雄的最大征兵数(含建筑基础)
+function getMaxSoldierCnt( buildId, buildLev, heroInfoList, soldierType, sumRate)
+	local buildType = DATA_MAINCITY_BUILDING.getBuildingTypeById(buildId)
+	local baseAmount = DATA_SOLDIER_PRODUCE.getSoldierAmountByLev(buildType, buildLev)
+	local heroAddAmount = getMaxSoldierCntWithoutBuilding( buildId, buildLev, heroInfoList, soldierType, sumRate)
+	return math_floor(baseAmount + heroAddAmount)
+end
+
+-- 英雄的最大征兵数(不含建筑基础)
+function getMaxSoldierCntWithoutBuilding( buildId, buildLev, heroInfoList, soldierType, sumRate)
+	local buildType = DATA_MAINCITY_BUILDING.getBuildingTypeById(buildId)
+	local baseAmount = DATA_SOLDIER_PRODUCE.getSoldierAmountByLev(buildType, buildLev)
+	local heroAddAmount = baseAmount * (calHeroGenSoldierAddRate(heroInfoList, soldierType, sumRate))
+	return math_floor(heroAddAmount)
+end
+
+-- Npc城池英雄的征兵数加成
+function getNpcCityHeroGenSoliderAddCnt(heroInfoList, soldierType, groupLuckRate)
+	local baseAmount = 1000
+	local heroAddAmount = baseAmount * (calHeroGenSoldierAddRate(heroInfoList, soldierType, groupLuckRate))
+	return math_floor(heroAddAmount)
+end
+
+-- 武将武力值对生产士兵的时间减少百分比
+local function calHeroForceMinusGenSoldierTimeRate(rawHeroList)
+	if not(rawHeroList and next(rawHeroList)) then
+		return 0
+	end
+	local heroInfoList = table_deepcopy(rawHeroList)
+	local function compare(heroInfo1, heroInfo2) 
+		return heroInfo1.charm > heroInfo2.charm
+	end
+	table.sort(heroInfoList, compare)
+
+	local force1 = heroInfoList[1] and heroInfoList[1].charm or 0
+	local force2 = heroInfoList[2] and heroInfoList[2].charm or 0
+	local force3 = heroInfoList[3] and heroInfoList[3].charm or 0
+
+	local rate1 = (0.0012 * force1 * force1 + 0.0954 * force1) / 100
+	local rate2 = (0.0032 * force2 * force2 + 0.2082 * force2) / 100
+	local rate3 = (0.0014 * force3 * force3 + 0.0794 * force3) / 100
+
+	return rate1 * (1 + rate2) * (1 + rate3)
+end
+
+-- 生产士兵的时间减少百分比
+function getMinusGenSoldierTimeInPercent(heroInfoList, soldierType)
+	local charmRate = calHeroForceMinusGenSoldierTimeRate(heroInfoList)
+	local skillRate = 0
+	for _, heroInfo in pairs(heroInfoList) do
+		skillRate = skillRate + getHeroSkillShorten(heroInfo.skillTbl, soldierType) 
+	end
+	return charmRate + skillRate
+end
+
+-- 生产士兵所需时间
+function getGenSoldierTime( heroInfoList, soldierType, soldierCnt, buildId, sumRate, talentRate, weatherRate)
+	weatherRate = weatherRate or 0
+	sumRate = sumRate or 0
+	local charmRate = calHeroForceMinusGenSoldierTimeRate(heroInfoList)
+
+	local skillRate = 0
+	if (heroInfoList and next(heroInfoList)) then
+		for _, heroInfo in pairs(heroInfoList) do
+			skillRate = skillRate + getHeroSkillShorten(heroInfo.skillTbl, soldierType)
+		end
+	end
+	local subRate = charmRate + skillRate + sumRate
+	if subRate > 0.8 then
+		subRate = 0.8 
+	end
+
+	local unitTime = DATA_SOLDIER.getSoldierCostTimeByType(soldierType)
+	local totalTime = ( unitTime * soldierCnt ) * (1 - subRate)*(1 - talentRate)*(1 - weatherRate)
+	return math_floor(totalTime)
+end
+
+function getRepairWallTimeReducePercent(heroForce, skillEffect, talentEffect)
+	local skillReduePercent = skillEffect or 0
+	local talentReduePercent = talentEffect or 0
+	return (1 - (heroForce / 400.0 + skillReduePercent ))*(1-talentEffect)
+end
+
+function getRepareWallTimePerHp(buildLev, heroForce, skillEffect, talentEffect)
+	local info = DATA_REPAIR_WALL.getInfo(buildLev)
+	return info.CostTime * getRepairWallTimeReducePercent(heroForce, skillEffect, talentEffect)
+end
+
+function getRepareFortTimePerHp(buildLev, heroForce, skillEffect, talentEffect)
+	local info = DATA_FORT.getFortDataByLev(buildLev)
+	return info.CostTime * getRepairWallTimeReducePercent(heroForce, skillEffect, talentEffect)
+end
+
+function getRepareSubCityTimePerHp(buildLev, heroForce, skillEffect, talentEffect)
+	local info = DATA_SUB_CITY.getSubCityDataByLev(buildLev)
+	return info.CostTime * getRepairWallTimeReducePercent(heroForce, skillEffect, talentEffect)
+end
+
+function getHeroName( heroBaseInfo )
+	if heroBaseInfo.strName and #heroBaseInfo.strName > 0 then 
+		return heroBaseInfo.strName
+	else
+		return LANGUAGE.getStringById(heroBaseInfo.numName)
+	end
+end
+
+function calLeadAddCarryRate(value)
+	-- bodylocal 
+	return (0.0002 * value * value * value * value + 1.2412 * value * value) / 10000
+end
+
+function getBaseCarryOnSoldierCnt(militaryBuildLv)
+	-- to fix
+	return DATA_MILIITARY_OFFICE.getHeroBaseLeadingCountByBuildLv(militaryBuildLv)
+end
+
+function getHeroRealCarrySoldierCnt(userInfo, skillEffect, militaryBuildLv, sumRate, leaderValue)	
+	local leaderAddRate = calLeadAddCarryRate(leaderValue)
+	local baseSoldierCnt = getBaseCarryOnSoldierCnt(militaryBuildLv)
+	-- local officialAddtionCnt = DATA_OFFICIAL.getHeroAddLeaderSoldierCntByOfficail(official)
+	local skillAdditionCnt = 0
+	if skillEffect and skillEffect[COMMON_CONST.HERO_SKILL.ADD_SOLDIER] then
+		skillAdditionCnt = skillEffect[COMMON_CONST.HERO_SKILL.ADD_SOLDIER]
+	end 
+	-- local incSoldierRate = DATA_UNION_OFFICIAL.getIncSoldierRate(userInfo.unionOfficial)
+	sumRate = sumRate or 0
+	return math_ceil( baseSoldierCnt + baseSoldierCnt *leaderAddRate + baseSoldierCnt *skillAdditionCnt + baseSoldierCnt *sumRate) 
+end
+
+function heroIsMaster(belong)
+	return belong == COMMON_CONST.HERO_BELONG.MASTER
+end
+
+-- 英雄带兵数
+function getMaxTroopSoldierCntByHeroList(heroInfoList, userInfo, commRate)
+	local heroSoldierCnt = 0
+	for _, heroInfo in pairs(heroInfoList) do
+		local skillEffect = getHeroSkillTbl(getHeroSkill(heroInfo), heroInfo.treasureSkillType)
+		local militaryBuildLv = DATA_CENTER.directGetBuildingLevel(COMMON_CONST.BUILD_MILITARY_BUILD)
+		heroSoldierCnt = heroSoldierCnt + getHeroRealCarrySoldierCnt(userInfo, skillEffect, militaryBuildLv, commRate, heroInfo.leaderShip)
+	end	
+	return heroSoldierCnt
+end
+
+
+function calNeedYuanbaoByTime(leftTime)
+	return math_ceil(leftTime / (60*2)) * 1
+end
+
+function calGenSoldierYuanbaoByTime(leftTime)
+	return calNeedYuanbaoByTime(leftTime)
+end
+
+function calUpgradeYuanbaoByTime(leftTime)
+	return calNeedYuanbaoByTime(leftTime)
+end
+
+function isBuildingFullGrade(buildingId)
+	local buildingInfo = DATA_CENTER.directGetBuildDataById(buildingId)
+	local buildingType = DATA_MAINCITY_BUILDING.getBuildingTypeById(buildingId)
+	local buildingLev = buildingInfo.level
+
+	return DATA_BUILDING_DETAIL.isBuildingFullGrade(buildingType, buildingLev)	
+end
+
+function isZhouTaiTaskUpgrade(buildId, level)
+	return buildId == COMMON_CONST.BUILD_FD and level == COMMON_CONST.FOUNDATION_RELIENCE_ZHOUTAI_LEV
+end
+
+function canBuildingUpgrade(buildingId)
+	local level = DATA_CENTER.directGetBuildDataById(buildingId).level
+	if isBuildingFullGrade(buildingId) then
+		return false
+	elseif isZhouTaiTaskUpgrade(buildingId, level) and DATA_CENTER.directGetNewbieBossState() ~= COMMON_CONST.NEWBIE_BOSS_SATE.DEAD then
+		return false
+	else
+		local buildingType = DATA_MAINCITY_BUILDING.getBuildingTypeById(buildingId)	
+		
+		return DATA_BUILDING_COST.canBuildingUpgrade(buildingType, level,buildingId)	
+	end
+end
+
+function canBuildingConstruct(buildingId)
+	local level = DATA_CENTER.directGetBuildDataById(buildingId).level
+	if level <= 0 then
+		return canBuildingUpgrade(buildingId)
+	else
+		return false
+	end
+end
+
+function canGenSoldierBySoldierType(soldierType) 
+	local yinLiang = DATA_CENTER.getYinLiangDirect()
+	local food = DATA_CENTER.getFoodDirect()	
+
+	return DATA_SOLDIER.canGenSoldier(soldierType, yinLiang, food) 
+end
+function isConstructRelianceEnough(buildingId, level)
+	local upGradeReliance = DATA_BUILDING_RELIANCE.getReliance(buildingId, level + 1)
+	for _, limitInfo in pairs(upGradeReliance) do
+		local isStatic = false
+		if DATA_CENTER.directGetBuildingLevel(limitInfo.bid) >= limitInfo.lev then
+			isStatic = true
+			break
+		end	
+		if not isStatic then
+			return false
+		end
+	end
+	return true
+end
+function getEventKindByKey(eventKey)
+	for eventKind, tbl in pairs(COMMON_CONST.EVENT_KIND_TBL) do
+		if tbl[eventKey] then
+			return eventKind
+		end	
+	end	
+end
+
+function isConstructEvent(eventKey)
+	return getEventKindByKey(eventKey) == COMMON_CONST.EVENT_KIND.CONSTRUCT_EVENT 
+end
+
+function isGenSoldierEvent(eventKey)
+	return getEventKindByKey(eventKey) == COMMON_CONST.EVENT_KIND.GEN_SOLDIER_EVENT and eventKey ~= COMMON_CONST.EK_TBL.EK_CITY_GEN_SOLDIER
+end
+
+function isGenSpecailSoldierEvent(eventKey)
+	return eventKey == COMMON_CONST.EK_TBL.EK_CITY_GEN_SOLDIER
+end
+
+function getFactorKeyBySoldierType(soldierType)
+	local soldierKind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	return COMMON_CONST.SOLDIER_KIND_TO_FACTOR_KEY[soldierKind] 
+end
+
+function calDistanceBetweenTwoPoint(x1, y1, x2, y2)
+	return math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) * 4)
+end
+
+function calCostTimeByDistance(dis, speed)
+	speed = speed or COMMON_CONST.MOVE_SPEED
+	return math_ceil(dis / speed)
+end
+
+function getSoldierFactoryStrByInt(factory)
+	return COMMON_CONST.SOLDIER_FACTORY_INT_TO_STR[factory]
+end
+
+function getNeedCostTblByHeroStep(step)
+	return COMMON_CONST.RECRUIT_COST_TBL[step]	
+end
+
+function getMailKindBySubKind(mailSubKind)
+	return COMMON_CONST.MAIL_SUBKIND_CONF[mailSubKind]
+end
+
+--[[
+-- [key] = rate
+--]]
+function randKeyByKeyRateTbl(keyRateTbl)
+	local sumRate = 0
+	for k, r in pairs(keyRateTbl) do
+		sumRate = sumRate + r
+	end
+	local randNum = math_random(1, sumRate)
+	local curNum = 0
+	for k, r in pairs(keyRateTbl) do
+		curNum = curNum + r
+		if randNum <= curNum then
+			return k
+		end
+	end
+end
+
+function randOneValueInList(list)
+	local len = table.maxn(list)
+	local randnum = math_random(1, len)
+	return list[randnum]
+end
+
+local function soldierIsWeapon(soldierType)
+	local soldierKind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	return (soldierKind == COMMON_CONST.TROOP_SIEGEWEAPONS)
+end
+
+-- 获取最优的兵种
+local function getOptSoldierType(soldierData, excludeWeapon)
+	local optSoldierCnt = 0
+	local optSoldierValue = 0
+	local optSoldierType
+	for soldierType, soldierInfo in pairs(soldierData) do
+		if not (excludeWeapon and soldierIsWeapon(soldierType)) then
+			if soldierInfo.soldierCnt > optSoldierCnt then
+				optSoldierCnt = soldierInfo.soldierCnt
+				optSoldierValue = soldierInfo.standValue
+				optSoldierType = soldierType
+			elseif soldierInfo.soldierCnt == optSoldierCnt and soldierInfo.standValue > optSoldierValue then
+				optSoldierCnt = soldierInfo.soldierCnt
+				optSoldierValue = soldierInfo.standValue
+				optSoldierType = soldierType
+			end
+		end
+	end
+
+	return optSoldierType
+end
+
+-- 兵种适性加成系数
+function getPlusBySFactor(factor)
+	return DATA_CONST.getFactorRate(factor)
+end 
+
+-- 武将属性加成系数
+local FIT_FACTOR = 500
+function getAttrFactor(value)
+	return value / FIT_FACTOR
+end
+
+local LEADER_HERO_ADD_FACTOR = 0.4
+local VICE_HERO_ADD_FACTOR = 0.3
+local function calAttrPlusByHeroInfo(heroInfo, soldierType)
+	local sFactor = getFactorKeyBySoldierType(soldierType) 
+	return getAttrFactor(heroInfo.leaderShip) + getPlusBySFactor(heroInfo[sFactor])
+end
+
+function calAttrPlusByHeroList(heroInfoList, soldierType)
+	local percent = 0
+	for idx, heroInfo in ipairs(heroInfoList) do
+		if idx == 1 then -- 主将
+			percent = percent + calAttrPlusByHeroInfo(heroInfo, soldierType) * LEADER_HERO_ADD_FACTOR
+		else -- 副将
+			percent = percent + calAttrPlusByHeroInfo(heroInfo, soldierType) * VICE_HERO_ADD_FACTOR 
+		end
+	end
+	return percent 
+end
+
+function containElement(tbl, ele)
+	for _, v in pairs(tbl) do
+		if v == ele then
+			return true
+		end 
+	end
+	return false
+end
+
+-- 根据缘分选择武将
+local function getHeroListByLuck(soldierType, heroData)
+	local attrTbl = {"attTbl", "defTbl"}
+	local luckList = DATA_GROUP_LUCK.getGroupLuckListByAttrTbl(heroData, attrTbl)
+
+	-- 获取士兵加成最高的缘分
+	local maxValue
+	local resLuckId
+	local resAttr 
+	local function update(value, id, attr)
+		maxValue = value
+		resLuckId = id
+		resAttr = attr
+	end
+	for luckId, luckInfo in pairs(luckList) do
+		local luckAttrTbl = luckInfo.AttrTbl
+		for attr, tbl in pairs(luckAttrTbl) do
+			-- 判断是否对所选兵种有加成
+			if containElement(tbl.soldierType, soldierType) then 
+				if not maxValue then
+					update(tbl.value, luckId, attr)
+				elseif tbl.value > maxValue then
+					update(tbl.value, luckId, attr)
+				end
+			end
+		end
+	end
+
+	-- 根据缘分表配置武将
+	local heroList = {}
+	if resLuckId then
+		local luckInfo = luckList[resLuckId]
+		local comHeroList = luckInfo.ComHero
+		for _, heroType in ipairs(comHeroList) do
+			for heroId, heroInfo in pairs(heroData) do
+				if heroInfo.heroType == heroType then
+					-- heroList[heroId] = heroInfo
+					table_insert(heroList, heroInfo)
+					break
+				end
+			end
+		end
+		if #heroList ~= #comHeroList then -- 没有拥有全部武将
+			heroList = {}
+		end
+	end
+	return heroList
+end
+
+-- chosenTroopData
+--[[
+	soldierKind = "number", -- 
+	heroList = {heroId1, heroId2, heroId3},
+	curChosenSoldierNum = "number",
+--]]
+
+-- 转换成协议所需要的数据格式
+--[[
+
+	heroInfo = "string",
+	{
+		main = id,
+		vice = {
+			[1] = id,
+			[2] = id,
+		},
+	},
+	soldierType = "number", -- 
+	soldierCnt = "number",
+--]]
+function convertChosenTroopData(chosenTroopData)
+	local idx = 1
+	local convData = {}
+	for troopIdx, troopInfo in pairs(chosenTroopData) do
+		local data = {}
+		data.soldierType = troopInfo.soldierKind
+		data.soldierCnt = troopInfo.curChosenSoldierNum
+
+		local hero = {vice = {}}
+		for heroIdx = 1, 3 do
+			if troopInfo.heroList[heroIdx] then
+				if heroIdx == 1 then
+					hero.main = troopInfo.heroList[heroIdx]
+				else
+					local heroPos = heroIdx == 2 and COMMON_CONST.HERO_POS.FORCE or COMMON_CONST.HERO_POS.WIS -- 先锋/参谋
+					hero.vice[heroPos] = troopInfo.heroList[heroIdx]
+				end
+			end
+		end
+		data.heroInfo = hero
+		data.troopIdx = troopIdx
+		convData[idx] = data
+		idx = idx + 1
+	end	
+	
+	return convData
+end
+
+function getRealCarrySoldierCnt(heroInfo, userInfo, commRate, militaryBuildLv)
+	local skillEffectTable = heroInfo and getHeroSkillTbl(getHeroSkill(heroInfo), heroInfo.treasureSkillType)
+	return getHeroRealCarrySoldierCnt(userInfo, skillEffectTable, militaryBuildLv, commRate, heroInfo.leaderShip)
+end
+
+--武将的优先值，武力标准值，智力标准值，对应主将，先锋，参谋
+function convHeroStandValue(heroInfo, soldierType)
+	if heroInfo.mainValue and heroInfo.mainValue[soldierType] then return heroInfo end 
+	
+	if not heroInfo.mainValue then
+		heroInfo.mainValue = {}
+		heroInfo.forceValue = {}
+		heroInfo.wisValue = {}
+	end
+	local factor = getFactorKeyBySoldierType(soldierType)
+	local factorValue = getPlusBySFactor(heroInfo[factor])
+
+	local skillEffectTable = getHeroSkillTbl(getHeroSkill(heroInfo), heroInfo.treasureSkillType)
+	local attPercent = DATA_HERO_BASE.getSkillAddSoldierAttactPercent(skillEffectTable, soldierType)
+	local defPercent = DATA_HERO_BASE.getSkillAddSoldierDefPercent(skillEffectTable, soldierType)
+	local damPercent = DATA_HERO_BASE.getSkillAddSoldierDamPercent(skillEffectTable, soldierType)
+
+	local soldierKind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	local attParam = COMMON_CONST.TROOP_ATT_PARAMS[soldierKind]
+	local defParam = COMMON_CONST.TROOP_DEF_PARAMS[soldierKind]
+	local damParam = COMMON_CONST.TROOP_DAM_PARAMS[soldierKind]
+
+	local otherAdd = factorValue*2 + attPercent*attParam + defPercent*defParam + damPercent*damParam + 1
+	
+	heroInfo.mainValue[soldierType] = otherAdd * heroInfo.carrySoldier  --主将标准
+	heroInfo.forceValue[soldierType] = (0.243*heroInfo.force^2 + 9.64*heroInfo.force)/5000 + otherAdd
+	heroInfo.wisValue[soldierType] = (0.243*heroInfo.wis^2 + 9.64*heroInfo.wis)/5000 + otherAdd
+
+	return heroInfo
+end
+
+--选择最佳主将
+local function getOptimalHero(heroData, soldierType)
+	local optValue = 0
+	local optCarrySoldier = 999999
+	local optHero
+	for _, heroInfo in pairs(heroData) do
+		convHeroStandValue(heroInfo, soldierType)
+		if optValue < heroInfo.mainValue[soldierType] then
+			optValue = heroInfo.mainValue[soldierType]
+			optCarrySoldier = heroInfo.carrySoldier
+			optHero = heroInfo
+		elseif optValue == heroInfo.mainValue[soldierType] and optCarrySoldier > heroInfo.carrySoldier then
+			optValue = heroInfo.mainValue[soldierType]
+			optCarrySoldier = heroInfo.carrySoldier
+			optHero = heroInfo
+		end
+	end
+	return optHero
+end
+
+
+local CHECK_TROOP_RETURN_TYPE = {
+	SUCCESS = 0,
+	NO_HERO = 1,
+	NO_SOLDIER = 2,
+	TROOP_CNT_LIMT = 3,
+}
+local TROOP_SOLDIER_LIMIT
+
+--是否能继续编队
+local function checkTroopData(curTroop, maxTroopNum, heroData, soldierData)
+	if not heroData or not hasElement(heroData) then 		--无剩余武将
+		return CHECK_TROOP_RETURN_TYPE.NO_HERO
+	elseif not soldierData or not hasElement(soldierData) or TROOP_SOLDIER_LIMIT <= 0 then
+		return CHECK_TROOP_RETURN_TYPE.NO_SOLDIER
+	elseif curTroop > maxTroopNum then
+		return CHECK_TROOP_RETURN_TYPE.TROOP_CNT_LIMT
+	else
+		return CHECK_TROOP_RETURN_TYPE.SUCCESS
+	end
+end
+
+
+local function setOptHeroToTroop(chosenTroopData, chosenSoldierType, heroData, soldierData, curTroop)
+	-- 根据士兵类型选择最适配的英雄
+	local optHero = getOptimalHero(heroData, chosenSoldierType)
+		
+	local carrySoldierCnt = math.min(optHero.carrySoldier, soldierData[chosenSoldierType].soldierCnt)
+	carrySoldierCnt = math.min(carrySoldierCnt, TROOP_SOLDIER_LIMIT)
+	chosenTroopData[curTroop] = chosenTroopData[curTroop] or {}
+	if not chosenTroopData[curTroop].heroList then
+		chosenTroopData[curTroop].heroList = {}
+	end
+	chosenTroopData[curTroop].heroList[1] = optHero.id
+	chosenTroopData[curTroop].soldierKind = chosenSoldierType
+	chosenTroopData[curTroop].curChosenSoldierNum = (chosenTroopData[curTroop].curChosenSoldierNum or 0) + carrySoldierCnt
+	chosenTroopData[curTroop].maxSoldierNum = chosenTroopData[curTroop].curChosenSoldierNum
+
+	soldierData[chosenSoldierType].soldierCnt = soldierData[chosenSoldierType].soldierCnt - carrySoldierCnt
+	TROOP_SOLDIER_LIMIT = TROOP_SOLDIER_LIMIT - carrySoldierCnt
+	if soldierData[chosenSoldierType].soldierCnt <= 0 then
+		soldierData[chosenSoldierType] = nil
+	end
+
+	-- 将已选择的英雄从heroData中去除
+	heroData[optHero.id] = nil
+end
+
+--是否排除战车 数量最多的战车 <= 3*其他兵种最多数量
+local function isExcludeWeapon(soldierData, notAttCastle)
+	if notAttCastle then
+		local maxWeaponCnt, maxOtherCnt = 0, 0
+		for soldierType, soldierInfo in pairs(soldierData) do
+			if soldierIsWeapon(soldierType) then
+				if maxWeaponCnt < soldierInfo.soldierCnt then
+					maxWeaponCnt = soldierInfo.soldierCnt
+				end
+			else
+				if maxOtherCnt < soldierInfo.soldierCnt then
+					maxOtherCnt = soldierInfo.soldierCnt
+				end
+			end
+		end
+		return (maxWeaponCnt <= (3*maxOtherCnt))
+	else
+		return false
+	end
+end
+
+local function genTroop(chosenTroopData, maxTroopNum, heroData, soldierData, notAttCastle)
+	local curTroop = 1
+	local checkTroopType = checkTroopData(curTroop, maxTroopNum, heroData, soldierData)
+	-- 循环1 选主将
+	while checkTroopType == CHECK_TROOP_RETURN_TYPE.SUCCESS do 
+		-- 选择剩余士兵数最多的兵种
+		local excludeWeapon = isExcludeWeapon(soldierData, notAttCastle)
+		local curSoldierType = getOptSoldierType(soldierData, excludeWeapon)
+		if curSoldierType then
+			setOptHeroToTroop(chosenTroopData, curSoldierType, heroData, soldierData, curTroop)
+			curTroop = curTroop + 1
+		else
+			break
+		end
+		checkTroopType = checkTroopData(curTroop, maxTroopNum, heroData, soldierData)
+	end
+	return checkTroopType
+end
+
+local function getSoldierSum(allSoldierData)
+	local sum = 0
+	for soldierType, soldierInfo in pairs(allSoldierData) do
+		sum = sum + soldierInfo.soldierCnt
+	end
+	return sum
+end
+
+local function getMaxForceValueHero(heroData, soldierType)
+	local maxForceValue = 0
+	local optHero
+	for _, heroInfo in pairs(heroData) do
+		if maxForceValue < heroInfo.forceValue[soldierType] then
+			maxForceValue = heroInfo.forceValue[soldierType]
+			optHero = heroInfo
+		end
+	end
+	return optHero
+end
+
+local function getMaxWisValueHero(heroData, soldierType)
+	local maxWisValue = 0
+	local optHero
+	for _, heroInfo in pairs(heroData) do
+		if maxWisValue < heroInfo.wisValue[soldierType] then
+			maxWisValue = heroInfo.wisValue[soldierType]
+			optHero = heroInfo
+		end
+	end
+	return optHero
+end
+
+local function getReturnSoldierData(soldierData)
+	local ret = {}
+	for soldierType, soldierInfo in pairs(soldierData) do
+		ret[soldierType] = soldierInfo.soldierCnt
+	end
+	return ret
+end
+
+local function compareHeroForce(a, b)
+	if a and not b then return true end
+	if not a and b then return false end
+	if a.curForceValue == b.curForceValue then
+		if a.force == b.force then
+			return a.wis < b.wis
+		else
+			return a.force < b.force
+		end
+	else
+		return a.curForceValue > b.curForceValue
+	end
+end
+
+local function compareHeroWis(a, b)
+	if a and not b then return true end
+	if not a and b then return false end
+	if a.curWisValue == b.curWisValue then
+		if a.wis == b.wis then
+			return a.force < b.force
+		else
+			return a.wis < b.wis
+		end
+	else
+		return a.curWisValue > b.curWisValue
+	end
+end
+
+local function getForceAndWisRanks(heroData, curSoldierType)
+	local forceRank, wisRank = {}, {}
+	local force1, force2, force3, wis1, wis2, wis3
+	for heroId, heroInfo in pairs(heroData) do
+		heroInfo.curForceValue = heroInfo.forceValue[curSoldierType]
+		heroInfo.curWisValue = heroInfo.wisValue[curSoldierType]
+		if heroInfo.force >= 60 then
+			-- table.insert(forceRank, heroInfo)
+			if compareHeroForce(heroInfo, force1) then
+				force3 = force2
+				force2 = force1
+				force1 = heroInfo
+			else
+				if compareHeroForce(heroInfo, force2) then
+					force3 = force2
+					force2 = heroInfo
+				else
+					if compareHeroForce(heroInfo, force3) then
+						force3 = heroInfo
+					end
+				end
+			end
+		end
+		if heroInfo.wis >= 60 then
+			-- table.insert(wisRank, heroInfo)
+			if compareHeroWis(heroInfo, wis1) then
+				wis3 = wis2
+				wis2 = wis1
+				wis1 = heroInfo
+			else
+				if compareHeroWis(heroInfo, wis2) then
+					wis3 = wis2
+					wis2 = heroInfo
+				else
+					if compareHeroWis(heroInfo, wis3) then
+						wis3 = heroInfo
+					end
+				end
+			end
+		end
+	end
+	-- local function sortForceRank(a, b)
+	-- 	if a.curForceValue == b.curForceValue then
+	-- 		if a.force == b.force then
+	-- 			return a.wis < b.wis
+	-- 		else
+	-- 			return a.force < b.force
+	-- 		end
+	-- 	else
+	-- 		return a.curForceValue > b.curForceValue
+	-- 	end
+	-- end
+	-- local function sortWisRank(a, b)
+	-- 	if a.curWisValue == b.curWisValue then
+	-- 		if a.wis == b.wis then
+	-- 			return a.force < b.force
+	-- 		else
+	-- 			return a.wis < b.wis
+	-- 		end
+	-- 	else
+	-- 		return a.curWisValue > b.curWisValue
+	-- 	end
+	-- end
+	-- table.sort(forceRank, sortForceRank)
+	-- table.sort(wisRank, sortWisRank)
+	forceRank = {force1, force2, force3}
+	wisRank = {wis1, wis2, wis3}
+	return forceRank, wisRank
+end
+
+--快速编队规则  客户端，服务端共用 服务端只用前面6个参数
+function autoGetBattleTroopData(maxTroopNum, allHeroData, allSoldierData, userInfo, sumRate, militaryBuildLv, soldierStoreLimit, notAttCastle)
+	local chosenTroopData = {}
+
+	local heroData = {}		-- 保存当前剩余武将列表
+	for heroId, heroInfo in pairs(allHeroData) do
+		heroInfo.mainValue = nil
+		heroInfo.carrySoldier = getRealCarrySoldierCnt(heroInfo, userInfo, sumRate, militaryBuildLv)  	--带兵数
+		heroData[heroId] = heroInfo
+	end
+	-- 保存当前剩余士兵列表
+	local soldierData = {}
+	for soldierType, soldierInfo in pairs(allSoldierData) do
+		soldierData[soldierType] = soldierInfo
+	end
+	TROOP_SOLDIER_LIMIT = soldierStoreLimit or getSoldierSum(allSoldierData)
+	local checkTroopType = genTroop(chosenTroopData, maxTroopNum, heroData, soldierData, notAttCastle)    --选主将
+	if checkTroopType == CHECK_TROOP_RETURN_TYPE.NO_HERO then    --没有剩余武将，结束
+		local returnSoldierData = getReturnSoldierData(soldierData)
+		return chosenTroopData, returnSoldierData
+	end
+
+	--排行榜选择阶段
+	for i=1, maxTroopNum do
+		if not hasElement(heroData) then break end
+		if not chosenTroopData[i] then break end
+
+		local curSoldierType = chosenTroopData[i].soldierKind
+		local forceRank, wisRank = getForceAndWisRanks(heroData, curSoldierType)
+		if not hasElement(forceRank) and not hasElement(wisRank) then
+			break
+		end
+		for j=1, 3 do
+			if not forceRank[j] then
+				forceRank[j] = {curForceValue = 0, curWisValue = 0}
+			end
+			if not wisRank[j] then
+				wisRank[j] = {curForceValue = 0, curWisValue = 0}
+			end
+		end
+		local heroList = chosenTroopData[i].heroList
+		if forceRank[1].id ~= wisRank[1].id then
+			heroList[2] = forceRank[1].id
+			heroList[3] = wisRank[1].id
+		else
+			local s1 = forceRank[2].curForceValue + wisRank[1].curWisValue
+			local s2 = forceRank[1].curForceValue + wisRank[2].curWisValue
+			if s1 == s2 then
+				local s3 = forceRank[2].curForceValue + wisRank[3].curWisValue
+				local s4 = forceRank[3].curForceValue + wisRank[2].curWisValue
+				if s3 < s4 then
+					heroList[2] = forceRank[2].id
+					heroList[3] = wisRank[1].id
+				else
+					heroList[2] = forceRank[1].id
+					heroList[3] = wisRank[2].id
+				end
+			elseif s1 > s2 then
+				heroList[2] = forceRank[2].id
+				heroList[3] = wisRank[1].id
+			else
+				heroList[2] = forceRank[1].id
+				heroList[3] = wisRank[2].id
+			end
+		end
+		if heroList[2] then
+			heroData[heroList[2]] = nil
+		end
+		if heroList[3] then
+			heroData[heroList[3]] = nil
+		end
+	end
+
+	--渣将选择阶段
+	for i=1, maxTroopNum do
+		if not hasElement(heroData) then break end
+		if not chosenTroopData[i] then break end
+
+		local curSoldierType = chosenTroopData[i].soldierKind
+		local heroList = chosenTroopData[i].heroList
+		if not heroList[2] then
+			local hero = getMaxForceValueHero(heroData, curSoldierType)
+			heroList[2] = hero.id
+			heroData[hero.id] = nil
+		end
+		if not hasElement(heroData) then break end
+		if not heroList[3] then
+			local hero = getMaxWisValueHero(heroData, curSoldierType)
+			heroList[3] = hero.id
+			heroData[hero.id] = nil
+		end
+	end
+
+	local returnSoldierData = getReturnSoldierData(soldierData)
+	return chosenTroopData, returnSoldierData
+end
+
+function getLangueStringFormatHeroName(numName, strName)
+	if numName ~= 0 then
+		return {numName}
+	end
+	return strName
+end
+
+function checkCanCreateSoldier(soldierType, buildingType, buildingLev, occupyCityTbl)
+	local sType = DATA_SOLDIER_PRODUCE.getSoldierTypeByLev(buildingType, buildingLev)
+	if soldierType == sType then
+		return true
+	end
+	local intensifySType = DATA_SOLDIER_PRODUCE.getIntensifySoliderTypeByLev(buildingType, buildingLev)
+	if soldierType == intensifySType then
+		return true
+	end
+	return false
+end
+
+function calGroupLuckRate(heroTypeTbl, key)
+	return DATA_GROUP_LUCK.getGroupLuckRate(heroTypeTbl, key)
+end
+
+
+function calFindHeroTime(charm, skillEffect, sumRate, talentRate)
+	local baseTime = -2.25 * charm * charm - 3 * charm + 32460
+	local reducePercent = 0
+	if skillEffect and skillEffect[COMMON_CONST.HERO_SKILL.FIND_HERO_SPEED] then
+		reducePercent = reducePercent + skillEffect[COMMON_CONST.HERO_SKILL.FIND_HERO_SPEED]
+	end
+	if sumRate then
+		reducePercent = reducePercent + sumRate
+	end
+	-- if reducePercent > 0.2 then
+	-- 	reducePercent = 0.2
+	-- end
+	-- if talentRate then
+	-- 	reducePercent = reducePercent + talentRate
+	-- end
+	return math_ceil(baseTime * (1 - reducePercent) * (1-talentRate))
+end
+
+function calcWorldMapDist( startx, starty, endx, endy )
+	local dx = endx - startx
+	local dy = (endy - starty) * 2
+	return math.ceil(math.sqrt(dx * dx + dy * dy))
+end
+
+function calPathNeedTime(startx, starty, endx, endy, speed)
+	local dist = calcWorldMapDist(startx, starty, endx, endy)
+	local needTime = dist / speed
+	return needTime
+end
+
+function calHealSoldierTime(soldierType, soldierCnt, timeRate)
+	local unitTime = DATA_SOLDIER.getSoldierCostTimeByType(soldierType)
+	local baseTime = math_ceil(unitTime * soldierCnt / 4)
+	return math_ceil(baseTime * (1 - timeRate))
+end
+
+function calHealSoldierConsume(baseConsume, consumeRate)
+	local reducePercent = 0
+	if consumeRate then
+		reducePercent = reducePercent + consumeRate
+	end
+	return math_ceil(baseConsume * (1 - reducePercent))
+end
+
+function calFindTreasureTime(charm, heroSkillRate, commonRate, talentRate)
+	local sumRate = heroSkillRate + commonRate
+	local baseTime = -2.25 * charm * charm + 139.5 * charm + 19305
+	return baseTime * (1 - sumRate) * (1 - talentRate)
+end
+
+function calTblSumValue(tbl)
+	local sum = 0
+	for _, value in pairs(tbl) do
+		sum = sum + value
+	end
+	return sum
+end
+
+function randSomeDiffNum(sum, cnt)
+	local ret = {}
+	if sum <= cnt then
+		for i = 1, sum do
+			table_insert(ret, i)
+		end
+	else
+		local keyMinRand = 1
+		for i = cnt, 1, -1 do
+			local keyMaxRand = sum - (i - 1)
+			local num = math_random(keyMinRand, keyMaxRand)
+			table_insert(ret, num)
+			keyMinRand = num + 1
+		end
+	end
+	return ret
+end
+
+function sliceStr( str, totalLen, sliceLen)
+	local ret = {}
+	local startPos = 1
+	while startPos <= totalLen do
+		local endPos = math.min(totalLen, startPos + sliceLen - 1)
+		local strSlice = string.sub(str, startPos, endPos)
+		table_insert(ret, {strSlice, endPos - startPos + 1})
+		startPos = startPos + sliceLen
+	end
+	return ret
+end
+
+function getResourceReteAddition(baseRate, heroList, skillType, talentRate) --COMMON_CONST.HERO_SKILL.ADD_FOOD COMMON_CONST.HERO_SKILL.ADD_YL
+	local rateAmount = 0
+	for _, heroInfo in pairs(heroList or {}) do
+		rateAmount = rateAmount + (getHeroSkillEffectByEffectType(heroInfo, skillType) or 0)
+		rateAmount = rateAmount + (0.0000004 * math.pow(heroInfo.politic,4) + 0.004 * math.pow(heroInfo.politic,2))/100
+	end
+	rateAmount = rateAmount + talentRate
+	return math_floor(baseRate *(rateAmount))
+end
+
+-- 士兵属性上限
+function getSoldierAttMax()
+	return COMMON_CONST.SOLDIER_ATT_MAX
+end
+function getSoldierDefMax()
+	return COMMON_CONST.SOLDIER_DEF_MAX
+end
+function getSoldierDamMax()
+	-- 攻城
+	return COMMON_CONST.SOLDIER_DAM_MAX
+end
+function getSoldierLoadMax()
+	-- 负重 
+	return COMMON_CONST.SOLDIER_LOAD_MAX
+end
+function getSoldierSpeedMax()
+	return COMMON_CONST.SOLDIER_SPEED_MAX
+end
+
+function convTblToList(tbl)
+	local list = {}
+	for k, v in pairs(tbl) do
+		table_insert(list, v)
+	end
+	return list
+end
+
+function isNpcForce(forceId)
+	if forceId < COMMON_CONST.UNION_FORCE_LEAST_SID then
+		return true
+	end
+	return false
+end
+
+function table_deepcopy( t, d )
+	local deep = d or 0
+	if deep > 20 then
+		return
+	end
+	local copy = {}
+	for k, v in pairs(t) do 
+		if type(v) ~= "table" then 
+			copy[k] = v
+		else 
+			copy[k] = table_deepcopy(v, deep + 1)
+		end 
+	end 
+	return copy
+end 
+
+function splitUtf8Str( str )
+	local tab = {}
+	for uchar in string.gfind(str, "[%z\1-\127\194-\244][\128-\191]*") do tab[#tab+1] = uchar end
+	return tab
+end
+
+function getUtf8WorldCount(text)
+	local charTbl = splitUtf8Str(text)
+	return #charTbl
+end
+
+function addList2ToList1(list1, list2)
+	for _, v in ipairs(list2) do
+		table_insert(list1, v)
+	end
+end
+
+function toInt(value)
+	return math_ceil(value)
+end
+
+function getMsgByMsgInfo(msgInfo)
+	local msg = msgInfo.msg
+	if msgInfo.msgType == COMMON_CONST.MSG_TYPE.LANGUE_ID then
+		msg = convFormatLanguageString(msg)
+	end
+	return msg
+end
+function getMsgByMsgType(msg, msgType)
+	if msgType == COMMON_CONST.MSG_TYPE.LANGUE_ID then
+		msg = convFormatLanguageString(msg)
+	end
+	return msg
+end
+
+function randomBySection(value, min, max)
+	local secMin = value - max
+	local secMax = value - min
+	if math_random(1, 50) <= 50 then
+		secMin = value + min
+		secMax = value + max 
+	end
+	return math_random(secMin, secMax)
+end
+
+function randomByRange(value, range)
+	return math_random(value - range, value + range)
+end
+
+function getMarketMaxLevel(userObj)
+	local maxLev = nil
+	for buildId, _ in pairs(COMMON_CONST.MARKET_TBL) do
+		local buildObj = userObj:getBuildById(buildId)
+		local level = buildObj:getLevel()
+		if not maxLev or level > maxLev then
+			maxLev = level
+		end
+	end
+	return maxLev
+end
+
+function getMarketTotalLevel( userObj )
+	local sumLev = 0
+	for buildId, _ in pairs(COMMON_CONST.MARKET_TBL) do
+		local buildObj = userObj:getBuildById(buildId)
+		local level = buildObj:getLevel()
+		sumLev = sumLev + level
+	end
+	return sumLev
+end
+
+function getFieldMaxLevel(userObj)
+	local maxLev = nil
+	for buildId, _ in pairs(COMMON_CONST.FIELD_TBL) do
+		local buildObj = userObj:getBuildById(buildId)
+		local level = buildObj:getLevel()
+		if not maxLev or level > maxLev then
+			maxLev = level
+		end
+	end
+	return maxLev
+end
+
+function getFieldTotalLevel( userObj )	
+	local sumLev = 0
+	for buildId, _ in pairs(COMMON_CONST.FIELD_TBL) do
+		local buildObj = userObj:getBuildById(buildId)
+		local level = buildObj:getLevel()
+		sumLev = sumLev + level
+	end
+	return sumLev
+end
+
+function getSoldierBuffByWis( wis )
+	return 0.0003*math_pow((wis-COMMON_CONST.ADVISOR_WIS_LIMIT),2)-0.00005*(wis-COMMON_CONST.ADVISOR_WIS_LIMIT)+0.01
+end
+
+function getMiceBuffByWis( wis )
+	return 0.0003*math_pow((wis-COMMON_CONST.ADVISOR_WIS_LIMIT),2)+0.0008*(wis-COMMON_CONST.ADVISOR_WIS_LIMIT)+0.052
+end
+
+local factorTbl = {
+	[ COMMON_CONST.HERO_ATTR.FS_FACTOR ] = 1,
+	[ COMMON_CONST.HERO_ATTR.ARROW_FACTOR ] = 1,
+	[ COMMON_CONST.HERO_ATTR.HORSE_FACTOR ] = 1,
+	[ COMMON_CONST.HERO_ATTR.WEAPON_FACTOR ] = 1,
+}
+
+function isHeroAttrShiXing(attr)
+	return factorTbl[attr]
+end
+
+function isNpcId(id)
+	return tonumber(id) <= 0
+end
+
+function getUserPayByUserSelect(cnt, userSel)
+	local pay = 0
+	if userSel == 1 then
+		pay = cnt * 0.3
+		if pay > 200000 then
+			pay = 200000
+		end
+	elseif userSel == 2 then
+		pay = cnt * 0.05
+		if pay > 50000 then
+			pay = 50000
+		end
+	end
+	return math.floor(pay)
+end
+
+function getHeroGenResAddRate(attrValue)
+	return 0.0006 * math.pow(attrValue, 2) - 0.0007 * attrValue
+end
+
+function calEmergeRate(param)
+	return 0.0044 * param * param + 0.402 * param
+end
+
+function calTalentStepByExp(sumExp)
+	local talExpTbl = DATA_TALENT.getUpgradeStepTbl()
+	local leftExp = sumExp
+	local curStep = 0
+	for step, info in ipairs(talExpTbl) do
+		if leftExp >= info.exp then
+			curStep = curStep + 1
+			leftExp = leftExp - info.exp
+		end
+	end
+	return curStep, leftExp
+end
+
+function calMaxFightBanditCnt(vipLevel)
+	return COMMON_CONST.MAX_FIGHT_BANDIT_CNT + DATA_VIP.getBanditEff(vipLevel)
+end
+
+function calLearnStrategyTime( heroWis, buildRate, heroRate )
+	return ( -2.25 * heroWis * heroWis + 139.5 * heroWis + 13905 ) * ( 1 - buildRate ) * (1 - heroRate)
+end
+
+function calUseSkillSucessRate(skillEffect, wis, strategeType, defRate)
+	return DATA_STRATEGY.getSkillSucceedEffectByStrategy(skillEffect, strategeType) + wis - defRate
+end
+
+function genUniqueAccount(prefix, account)
+	return string.format("%s_%s", prefix, account)
+end
+
+function tryGetOriAccount(prefix, accountWithPreFix)
+	local strPrefix, strAccount = string.match(accountWithPreFix, "(.-)_(.+)")
+	if strPrefix and strAccount and strPrefix == prefix then
+		return strAccount
+	else
+		return accountWithPreFix
+	end
+end
+
+local function getGenSoldierCostSkillRate(skillTbl, soldierType)
+	if not skillTbl then
+		return 0
+	end
+
+	local sKindToSkill = {
+		[ COMMON_CONST.TROOP_INFANTRY ] = "cut_infantry_cost",
+		[ COMMON_CONST.TROOP_SIEGEWEAPONS ] = "cut_weapon_cost",
+		[ COMMON_CONST.TROOP_BOWMAN ] = "cut_bowman_cost",
+		[ COMMON_CONST.TROOP_RIDER ] = "cut_rider_cost",
+	}
+	local sKind = DATA_SOLDIER.getSoldierKindByType(soldierType)
+	local skillType = sKindToSkill[sKind]
+	return skillTbl[skillType] or 0
+end
+
+function calGenSoldierCostSubRate(heroInfoList, soldierType)
+	local subRate = 0
+	for _, heroInfo in pairs(heroInfoList) do
+		subRate = subRate + getGenSoldierCostSkillRate(heroInfo.skillTbl, soldierType)
+	end
+	return subRate
+end
+
+function calWallDefRate(hp, maxHp)
+	return hp / (maxHp * 4)
+end
+
+function calGenSoldierCost(soldierType, soldierCnt, heroInfoList)
+	local costInfo = DATA_SOLDIER.getSoldierInfoByType(soldierType)
+	local perFood = costInfo.ProCostFood
+	local perYinliang = costInfo.ProCostYinLiang
+	local perIron = costInfo.ProCostIron
+
+	local baseCostFood = perFood * soldierCnt
+	local baseCostYinliang = perYinliang * soldierCnt
+	local baseCostIron = perIron * soldierCnt
+
+	local rate = 1 - calGenSoldierCostSubRate(heroInfoList, soldierType)
+	assert(rate > 0)
+
+	local costFood = math.ceil(baseCostFood * rate)
+	local costYinliang = math.ceil(baseCostYinliang * rate)
+	local costIron = math.ceil(baseCostIron * rate)
+
+	return costFood, costYinliang, costIron
+end
+
+function checkRange(tx, ty)
+	local ret = (tx >= 0 and tx < COMMON_CONST.WORLD_TILE_X_CNT and ty >= 0 and ty < COMMON_CONST.WORLD_TILE_Y_CNT)
+	return ret
+end
+
+--local CHINESE_CHAR_PATTERN = "[\128-\254][\128-\254][\128-\254]"
+local CHINESE_CHAR_PATTERN = "[\228-\233][\128-\191][\128-\191]"
+
+function isContainEscapeChar( str )
+	--[[
+	if string.find(str, "\"") then
+		return true
+	end
+
+	if string.find(str, "\n") then
+		return true
+	end
+
+	if string.find(str, "\\") then
+		return true
+	end
+
+	if string.find(str, "#") then
+		return true
+	end
+
+	if string.find(str, "|") then
+		return true
+	end
+
+	if string.find(str, "{") or string.find(str, "}") then
+		return true
+	end
+
+	if string.find(str, "=") then
+		return true
+	end
+
+	if string.find(str, ",") then
+		return true
+	end
+
+	if string.find(str, "%$") then 
+		return true
+	end
+	]]
+
+	local patternTbl = {CHINESE_CHAR_PATTERN, "[a-z]", "[0-9]", '[A-Z]'}
+
+	local start_pos = 1
+	while start_pos <= #str do
+		local flag = false
+		for _, pat in pairs(patternTbl) do
+			local head, tail = string.find(str, pat, start_pos)
+			if head and head == start_pos then 
+				start_pos = tail + 1
+				flag = true
+				break
+			end
+			
+		end
+		if not flag then 
+			return true
+		end
+	end
+
+	return false
+end
+
+--curPassTime:totalTime - leftTime(maybe)
+function calMarchRunWorldPos(curPassTime, marchInfo)
+	local sx, sy, ex, ey
+	local timeRate = (curPassTime / marchInfo.totalTime)
+	if marchInfo.moveStatus == COMMON_CONST.FIGHT_BACK  then
+		if marchInfo.withdrawX ~= -1 then
+			sx, sy, ex, ey = marchInfo.withdrawX, marchInfo.withdrawY, marchInfo.sx, marchInfo.sy
+		else
+			sx, sy, ex, ey = marchInfo.ex, marchInfo.ey, marchInfo.sx, marchInfo.sy
+		end
+	else
+		sx, sy, ex, ey = marchInfo.sx, marchInfo.sy, marchInfo.ex, marchInfo.ey
+	end
+
+	local wx = math.floor((ex - sx) * timeRate) + sx
+	local wy = math.floor((ey - sy) * timeRate) + sy
+	return wx, wy
+end
+
+function getSpySpeed(wis)
+	return COMMON_CONST.RECON_DEFAULT_SPEED * (wis / COMMON_CONST.RECON_SPEED_PARAM)
+end
+
+function calBuyTroopCost(curCnt)
+	return 200 * math.pow(2, curCnt)
+end
+
+--donateTbl = {
+--	soldierType = soldierCnt,
+--}
+function calDonateVC(donateTbl)
+	local donateVC = 0
+	for sType, sCnt in pairs(donateTbl) do
+		local yl, food = DATA_SOLDIER.getSoldierProdResByType(sType)
+		donateVC = donateVC + (yl + food) * sCnt / 200
+	end
+	donateVC = math.floor(donateVC)
+	return donateVC
+
+end
+
+function calDistance(lx, ly, tx, ty)
+	local dx = lx - tx 
+	local dy = ( ly - ty ) * 2
+	return math.floor( math.sqrt(dx * dx + dy * dy) * COMMON_CONST.KM_PER_PIXEL )
+end
+
+function getUpVillageSec(sec, politic)
+	local key = (politic - 70)
+	local delRate = 0.000162 * key * key + 0.006282 * key
+	local ret = math.ceil(sec * (1 - delRate))
+	return ret
+end
+
+function getDistanTag(dx, dy)
+	if dx < 133 and dy < 133 then
+		return COMMON_CONST.DISTANCE_TAG.NEAR
+	end
+	if dx < 266 and dy < 266 then
+		return COMMON_CONST.DISTANCE_TAG.MID
+	end
+	return COMMON_CONST.DISTANCE_TAG.FAR
+end
+
+

@@ -1,0 +1,210 @@
+local ARENA_RANK_CONFIG_TW = {
+	[1] = {
+		min = 1,
+		max = 50,
+		icon = 1,
+		difYuanBao = 5,
+		config = {
+			name = 10020,
+		},
+		difArenaMoney = 50,
+	},
+	[2] = {
+		min = 51,
+		max = 150,
+		icon = 2,
+		difYuanBao = 4,
+		config = {
+			name = 10021,
+		},
+		difArenaMoney = 40,
+	},
+	[3] = {
+		min = 151,
+		max = 350,
+		icon = 3,
+		difYuanBao = 3,
+		config = {
+			name = 10022,
+		},
+		difArenaMoney = 30,
+	},
+	[4] = {
+		min = 351,
+		max = 750,
+		icon = 4,
+		difYuanBao = 2,
+		config = {
+			name = 10023,
+		},
+		difArenaMoney = 20,
+	},
+	[5] = {
+		min = 751,
+		max = 1550,
+		icon = 5,
+		difYuanBao = 2,
+		config = {
+			name = 10024,
+		},
+		difArenaMoney = 20,
+	},
+	[6] = {
+		min = 1551,
+		max = 3150,
+		icon = 6,
+		difYuanBao = 1,
+		config = {
+			name = 10025,
+		},
+		difArenaMoney = 10,
+	},
+	[7] = {
+		min = 3151,
+		max = 6350,
+		icon = 7,
+		difYuanBao = 1,
+		config = {
+			name = 10025,
+		},
+		difArenaMoney = 10,
+	},
+	[8] = {
+		min = 6351,
+		max = 7000,
+		icon = 8,
+		config = {
+			name = 10027,
+		},
+		difArenaMoney = 10,
+	},
+	[9] = {
+		min = 7001,
+		max = nil,
+		icon = 9,
+		config = {
+			name = 10028,
+		},
+		difArenaMoney = 0,
+	},
+}
+
+local ARENA_RANK_CONFIG = {
+	[1] = {
+		min = 1,
+		max = 50,
+		icon = 1,
+		difYuanBao = 5,
+		config = {
+			name = 10020,
+		},
+		difArenaMoney = 50,
+	},
+	[2] = {
+		min = 51,
+		max = 150,
+		icon = 2,
+		difYuanBao = 4,
+		config = {
+			name = 10021,
+		},
+		difArenaMoney = 40,
+	},
+	[3] = {
+		min = 151,
+		max = 350,
+		icon = 3,
+		difYuanBao = 3,
+		config = {
+			name = 10022,
+		},
+		difArenaMoney = 30,
+	},
+	[4] = {
+		min = 351,
+		max = 750,
+		icon = 4,
+		difYuanBao = 2,
+		config = {
+			name = 10023,
+		},
+		difArenaMoney = 20,
+	},
+	[5] = {
+		min = 751,
+		max = 1550,
+		icon = 5,
+		difYuanBao = 1,
+		config = {
+			name = 10024,
+		},
+		difArenaMoney = 20,
+	},
+	[6] = {
+		min = 1551,
+		max = 3150,
+		icon = 6,
+		difYuanBao = 1,
+		config = {
+			name = 10025,
+		},
+		difArenaMoney = 10,
+	},
+	[7] = {
+		min = 3151,
+		max = 6350,
+		icon = 7,
+		config = {
+			name = 10025,
+		},
+		difArenaMoney = 10,
+	},
+	[8] = {
+		min = 6351,
+		max = 7000,
+		icon = 8,
+		config = {
+			name = 10027,
+		},
+		difArenaMoney = 10,
+	},
+	[9] = {
+		min = 7001,
+		max = nil,
+		icon = 9,
+		config = {
+			name = 10028,
+		},
+		difArenaMoney = 0,
+	},
+}
+
+function getSegDifConfig(seg, channelId)
+	if channelId == COMMON_CONST.CHANNEL_TW_1767 then
+		return ARENA_RANK_CONFIG_TW[seg]
+	else
+		return ARENA_RANK_CONFIG[seg]
+	end
+end
+
+function getAenaRankConfigTbl(channelId)
+	if channelId == COMMON_CONST.CHANNEL_TW_1767 then
+		return ARENA_RANK_CONFIG_TW
+	else
+		return ARENA_RANK_CONFIG
+	end	
+end
+
+
+MONEYTYPE2STR = {
+	[COMMON_CONST.MONEY_YINLIANG] = 10010,
+	[COMMON_CONST.MONEY_YUANBAO] = 10012,
+	[COMMON_CONST.MONEY_ARENA] = 10043,
+	[COMMON_CONST.MONEY_GLOBAL_ARENA] = 26224,
+}
+
+MINETYPE2STR = {
+	[COMMON_CONST.MINE_TYPE_YUANBAO] = LANGUAGE.getStringById(10044),
+	[COMMON_CONST.MINE_TYPE_YINLIANG] = LANGUAGE.getStringById(10045),
+	[COMMON_CONST.MINE_TYPE_JINGYAN] = LANGUAGE.getStringById(10046),
+}

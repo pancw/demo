@@ -1,0 +1,428 @@
+local string=string
+local table=table
+local io=io
+local pairs=pairs
+local ipairs=ipairs
+local tostring=tostring
+
+local NETWORK_PROTOCOL_DIR = "common/protocol"
+local NETWORK_PROTOCOL_CONF = "netpconf.lua"
+
+local NETWORK_RPC_DIR = "common/server_rpc"
+local NETWORK_RPC_CONF = "rpcconf.lua"
+
+local function GetPTOConf ()
+	return string.format ("%s/%s", NETWORK_PROTOCOL_DIR, NETWORK_PROTOCOL_CONF)
+end
+
+local function GetRPCConf ()
+	return string.format ("%s/%s", NETWORK_RPC_DIR, NETWORK_RPC_CONF)
+end
+
+local function getPtoDescArray(tbl)
+	local array = {}
+	for k, v in pairs(tbl) do 
+		local temp = {}
+		temp[k] = v 
+		table.insert(array, temp)
+	end
+	
+	local function get_key(tbl)
+		if not tbl or type(tbl)~="table" then return end
+		for k,_ in pairs(tbl) do
+			return tostring(k)
+		end
+	end
+	
+	local function compare_func(v1, v2)
+		local key1 = get_key(v1)
+		local key2 = get_key(v2)
+		return key1 < key2
+	end
+	table.sort(array, compare_func)
+	return array
+end
+
+local function AddTypeRPC(conf)
+	local t, p  = assert(dofile(conf))
+
+	for _, f in pairs(t) do
+		if posix.stat(f) then
+			local _type, _desc = loadfile(f)()
+			rpc.add_arg_type (_type, getPtoDescArray(_desc))
+		end
+	end
+
+	local errors = 0
+	for i, f in ipairs(p) do
+		if posix.stat(f) then
+			local ok, err = pcall(function()
+				local pid, err = rpc.add_protocol (f)
+			end)
+			if not ok then
+				errors = errors + 1
+			end
+		end
+	end
+
+	if errors > 0 then
+		error("no pto iml!!!")
+	end
+	
+	return t, p
+end
+
+--加载协议
+local function AddTypeProtocol (conf)
+	local t, p  = assert(dofile(conf))
+
+	for _, f in pairs(t) do
+		if posix.stat(f) then
+			local _type, _desc = loadfile(f)()
+			network.add_arg_type (_type, getPtoDescArray(_desc))
+		end
+	end
+
+	local errors = 0
+	for i, f in ipairs(p) do
+		if posix.stat(f) then
+			local ok, err = pcall(function()
+				local pid, err = network.add_protocol (f)
+			end)
+			if not ok then
+				errors = errors + 1
+			end
+		end
+	end
+
+	if errors > 0 then
+		error("no pto iml!!!")
+	end
+	
+	return t, p
+end
+
+local function Tree (rtbl, dir)
+	local dir = dir or "."
+
+	files = posix.dir (dir) 
+
+	for i, f in pairs(files) do
+		-- get rid of "." ".." ".*"
+		if string.sub(f, 1, 1) ~= "." then
+			pathname = string.format("%s/%s", dir, f)
+			local s  = assert (posix.stat (pathname))
+			if s.type == "regular" then
+				table.insert (rtbl, pathname) 
+			elseif s.type == "directory" then
+				Tree (rtbl, pathname)
+			else 
+				-- no link, pipo, socket, b , c ...
+				_WARN ("skip invalid direntry:%s,type:%s", pathname, s.type) 
+			end
+		end
+	end
+end
+
+--建立拓扑图
+local function Topo (udtfls)
+	local t = {}
+
+	--逐个读入tbl定义文件
+	for _, f in ipairs(udtfls) do
+		t[f] = {} 
+		t[f].indegree = {} 
+		t[f].outdegree = {} 
+		t[f].visit = false
+		t[f].tname, t[f].tdef = assert(dofile(f))
+		assert(type(t[f].tname) == "string" and  type(t[f].tdef) == "table") 
+	end
+
+	for fa, a in pairs(t) do
+		for fb, b in pairs(t) do
+			for _, tname in pairs(b.tdef) do
+				if a.tname == tname then
+					b.indegree[fa] = a
+					a.outdegree[fb] = b
+				end
+			end
+		end
+	end
+					 
+	return t 
+end
+
+--对pto所引用的tbl进行拓扑排序
+local function TSort (topo)
+	local s = {} 
+	local c = UTIL.Getn (topo)
+	
+	--为了容易diff， 需要对topo数据进行一些排序
+	local SortTopo = {}
+	for f, v in pairs (topo) do
+		v.File = f
+		table.insert (SortTopo, v)
+	end
+	local function LessThan (a, b)
+		return a.File < b.File
+	end
+	table.sort (SortTopo, LessThan)
+
+	while c > 0 do
+		local oc = c 
+		--for f, v in pairs(topo) do
+		for idx, v in pairs(SortTopo) do --每一趟必须要找出一个入度为0的结点，否则有环.
+			if v.visit == false and  UTIL.Getn(v.indegree) == 0 then
+				v.visit = true
+				table.insert(s, v.File)
+				c = c - 1 
+				for _, o in pairs(v.outdegree) do
+					o.indegree[v.File] = nil
+				end
+			end
+		end
+
+		assert (oc - c >= 1, "error: tbl has a loop reference for topologic sort!")
+	end
+
+	return s
+end
+
+local function RandomSortArray (tbl)
+	local ret = {}
+	local n = #tbl
+
+	while n > 0 do
+		local idx = math.random (1,n)
+		table.insert(ret, tbl[idx])
+		table.remove (tbl, idx) 
+		n = n - 1
+	end
+
+	return ret 
+end
+
+local static_tbl = {
+	[1] = "common/protocol/login/s_user_login.pto",
+	[2] = "common/protocol/login/c_login_ok.pto",
+	[3] = "common/protocol/notify/c_sys_notify.pto",
+	[4] = "common/protocol/login/c_pto_error.pto",
+}
+
+local function findPtoIdx(pto_list, pto)
+	for idx, pto_file in ipairs(pto_list) do
+		if pto == pto_file then
+			return idx
+		end
+	end
+end
+
+local function exchangePtoPos(pto_list, src_pos, dst_pos)
+	local v = pto_list[src_pos]
+	pto_list[src_pos] = pto_list[dst_pos]
+	pto_list[dst_pos] = v
+end
+
+local function MakeNetWorkConfData(baseDir, static_tbl)
+	local ftbl = {}
+
+	Tree (ftbl, baseDir)
+	table.sort (ftbl)
+
+	---静态的协议过滤掉
+	local function FiltOutStatic (i, f)
+		if string.sub(f, -3) == "pto" then 
+			return true
+		end
+		
+	end
+
+	--local pto = UTIL.FiltA (ftbl, function (i,f) return string.sub(f, -3) == "pto" end)
+	local pto = UTIL.FiltA (ftbl, FiltOutStatic)
+	local udt = UTIL.FiltA (ftbl, function (i,f) return string.sub(f, -3) == "tbl" end)
+
+	local tbl = TSort (Topo (udt))
+
+	local pto = RandomSortArray(pto)
+
+	if static_tbl then
+		for idx, s_pto in ipairs(static_tbl) do
+			local find_idx = findPtoIdx(pto, s_pto)
+			exchangePtoPos(pto, find_idx, idx)
+		end
+	end
+
+	return tbl, pto
+end
+
+local function SplitPath(path)
+	local b, e = string.find(path, '.*/')
+	if b then
+		return string.sub(path, 1, e-1), string.sub(path, e+1)
+	end
+	return nil, path
+end
+
+--
+-- 检查是否有重复的协议
+--
+local function CheckProtocolDuplicated(pto)
+	local TmpList = {}
+	for i, v in ipairs(pto) do
+		local path, base = SplitPath(v)
+		if not TmpList[base] then
+			TmpList[base] = {}
+		end
+		table.insert(TmpList[base], v)
+	end
+
+	local DupCount = 0
+	local DupList = {}
+	for k, v in pairs(TmpList) do
+		if #v > 1 then
+			DupList[k] = v
+			DupCount = DupCount + 1
+		end
+	end
+	return DupCount, DupList
+end
+
+local function WriteNetWorkConf(tbl, pto, conf_path)
+	--处理格式，并输出到文件
+	local fmt = function (idx, v) return string.format('\t"%s", --[%d]\n', v, idx) end
+
+	local otbl = {}
+	local opto = {}
+
+	for i, v in ipairs(tbl) do otbl[i] = fmt(i, v) end
+
+	local DupCount, DupList = CheckProtocolDuplicated(pto)
+	if DupCount > 0 then
+		local DupStrings = table.map(DupList, function(k, v) return k .. ': ' .. table.concat(v, ',') end)
+		local ErrMsg = string.format('found duplicated protocol:\n %s', table.concat(DupStrings, '\n'))
+		error(ErrMsg)
+	end
+
+	for i, v in ipairs(pto) do opto[i] = fmt(i, v) end
+
+	local format = "return \n{\n%s}, \n{\n%s}\n" 
+	local conf = conf_path
+	local fconf = io.open (conf, "w") 
+	fconf:write (string.format (format, table.concat(otbl), table.concat(opto))) 
+	fconf:flush ()
+	fconf:close ()
+	
+	return conf, tbl, pto
+end
+
+local function CheckPtoArgType(baseDir, static_tbl)
+	local ntbl, npto = MakeNetWorkConfData(baseDir, static_tbl)
+	local tbl = {
+		["bool"] = true,
+		["double"] = true,
+		["byte"] = true,
+		["number"] = true,
+		["string"] = true,
+		["word"] = true,
+		["dword"] = true,
+	}
+	for _, v in pairs(ntbl) do
+		local argname = assert(dofile(v))
+		tbl[argname] = true
+	end
+	for _, pto in pairs(npto) do
+		local t = assert(dofile(pto))
+		local arg_list = t.arg_list
+		assert(arg_list)
+		for _, arg in pairs(arg_list) do
+			local argtype = arg[2]
+			if (not tbl[argtype]) then
+				assert(false, string.format("%s have unknow arg type:%s", pto, argtype))
+			end
+		end
+	end
+end
+
+function CreateNetWorkConf()
+	print ("create network conf")
+	local tbl, pto = MakeNetWorkConfData(NETWORK_PROTOCOL_DIR, static_tbl)
+	local conf_path = GetPTOConf()
+	WriteNetWorkConf(tbl, pto, conf_path)
+end
+
+local rpcRec = {
+	"common/server_rpc/test/test_rpc.pto",
+	"common/server_rpc/test/send_self_hostid.pto",
+	"common/server_rpc/scene/notice_look_at_req.pto",
+	"common/server_rpc/scene/cancel_look_at_req.pto",
+	"common/server_rpc/scene/notice_del_entity_req.pto",
+	"common/server_rpc/entity/sync_foundation_res.pto",
+	"common/server_rpc/entity/sync_ground_res.pto",
+	"common/server_rpc/entity/sync_troop_tg_attack_res.pto",
+	"common/server_rpc/entity/sync_troop_tg_run_res.pto",
+}
+
+function CreateRPCConf()
+	print("create rpc conf")
+	local tbl, _ = MakeNetWorkConfData(NETWORK_RPC_DIR, nil)
+	local conf_path = GetRPCConf()
+	local pto = rpcRec
+	WriteNetWorkConf(tbl, pto, conf_path)
+end
+
+local function InitNetRPC()
+	rpc.init_rpc()
+	local conf = GetRPCConf()
+	if posix.stat(conf) then
+		AddTypeRPC(conf)
+		return true
+	else
+		print ("no rpcconf file:"..conf) 
+		return false
+	end
+end
+
+local function InitNetProtocol()
+	network.init_pto()
+
+	local conf = GetPTOConf()
+	--assert (posix.stat(conf), "no netpconf file:"..conf)
+	if posix.stat(conf) then
+		AddTypeProtocol (conf)
+		return true
+	else
+		print ("no netpconf file:"..conf) 
+		return false
+	end
+end
+
+local ProtocolCheckSum = nil
+local RPCCheckSum = nil
+
+function getProtocolCheckSum()
+	return ProtocolCheckSum
+end
+
+local function initRPC()
+	CheckPtoArgType(NETWORK_RPC_DIR, nil)
+	if InitNetRPC()  then
+		RPCCheckSum = rpc.get_check_sum()
+		print("RPCCheckSum is", RPCCheckSum)
+	else
+		print ("fail to init rpc")
+	end
+end
+
+local function initNetWork ()
+	CheckPtoArgType(NETWORK_PROTOCOL_DIR, static_tbl)
+	if InitNetProtocol()  then
+		ProtocolCheckSum = network.get_check_sum()
+		print("ProtocolCheckSum is", ProtocolCheckSum)
+	else
+		print ("fail to init network protocol")
+	end
+end
+
+initNetWork()
+initRPC()
+
