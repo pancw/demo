@@ -62,8 +62,6 @@ static int ReadConfig(int &port)
 
 int main(void)
 {
-	printf("hello world\n");
-
 	if (chdir("../logic") == -1)
 	{
 		fprintf(stderr, "bad logic path to dir:%s\n", "../logic");
@@ -76,7 +74,7 @@ int main(void)
 	int err = luaL_loadfile(GlobalL, "main.lua");	
 	if (err)
 	{
-		fprintf(stderr, "%s\n", luaL_checkstring(GlobalL, -1));
+		fprintf(stderr, "%s\n", lua_tostring(GlobalL, -1));
 		return 1;
 	}
 

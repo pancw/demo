@@ -101,7 +101,7 @@ namespace mgr {
 				}
 
 				// decode header
-				this->m_needByteCnt = (unsigned char)this->read_msg[0] + (unsigned char)(this->read_msg[1]*256);
+				this->m_needByteCnt = (unsigned char)this->read_msg[0] + ((unsigned char)(this->read_msg[1]))*256;
 
 				dataLen -= len;
 				this->set_readStatus(StatusReadbody);
@@ -143,7 +143,7 @@ namespace mgr {
 	void newUserConnect(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *sock, int socklen, void *user_data)
 	{
 		unsigned vfd = 	globalVfd++;
-		printf("accept a client. globalVfd=%d, nowVfd=%d\n", globalVfd, vfd);
+		printf("accept a client. vfd:%d\n", vfd);
 	
 		struct event_base *evBase = (struct event_base*)user_data;
 
@@ -183,7 +183,7 @@ namespace mgr {
 
 	void luaopen_netlib(lua_State* L)
 	{
-		luaL_register(L, "lnetlib", netlib);	
+		luaL_register(L, "lnet", netlib);	
 	}
 
 	Client::Client(int fd, unsigned int vfd, struct event_base *evBase){
