@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdio>
 #include "engine_base.h"
+#include "client_mgr.h"
 
 extern "C" {
 #include "lua.h"
@@ -37,6 +38,8 @@ static void InitLuaLib()
 	lua_gc(GlobalL, LUA_GCSTOP, 0);	
 	luaL_openlibs(GlobalL);
 	lua_gc(GlobalL, LUA_GCRESTART, 0);
+
+	mgr::luaopen_netlib(GlobalL);
 }
 
 static int ReadConfig(int &port)

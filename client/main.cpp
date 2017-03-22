@@ -105,19 +105,26 @@ int main(int argc, char** argv)
 
 void cmd_msg_cb(int fd, short events, void* arg)
 {
+	char msg1[1024];
 	char msg[1024];
 
-	int ret = read(fd, msg, sizeof(msg));
+	int ret = read(fd, msg1, sizeof(msg1));
 	if( ret < 0 )
 	{
 		perror("read fail ");
 		exit(1);
 	}
 
-	struct bufferevent* bev = (struct bufferevent*)arg;
+	char data[] = "this is a test data.";
+	unsigned int len = strlen(data);
+	memcpy(msg+2, data, strlen(data));	
 
-	//把终端的消息发送给服务器端
-	bufferevent_write(bev, msg, ret);
+	msg[0] = (unsigned char)(len % 256);
+	msg[1] = (unsigned char)(len / 256);
+
+	struct bufferevent* bev = (struct bufferevent*)arg;
+	bufferevent_write(bev, msg, 2+len);
+	printf("--------write\n");
 }
 
 

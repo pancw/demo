@@ -8,16 +8,19 @@ namespace engine_base {
 
 	struct event_base *base = NULL;
 	struct evconnlistener *clientListener;
-	struct event *signal_event = NULL;
 	struct event *timeout = NULL;
+	std::vector<struct event *> allSignalEvent;
 
 
 	static void signal_cb(evutil_socket_t fd, short events, void *arg)
 	{
 		printf("%s:got signal %d\n", __func__, fd);
 
-		// lua TODO
-		event_base_loopbreak(base);
+		if (fd == SIGINT)
+		{
+			// lua TODO
+			event_base_loopbreak(base);
+		}
 	}
 
 	void init()
@@ -29,10 +32,16 @@ namespace engine_base {
 			return;
 		}
 
-		signal_event = evsignal_new(base, SIGINT, signal_cb, NULL);
-		if (!signal_event || event_add(signal_event, NULL)<0) {
-			fprintf(stderr, "Could not create/add a signal event!\n");
-			return;
+		int SignalList[] = {SIGUSR1, SIGTERM, SIGHUP, SIGINT,SIGPIPE,SIGCHLD};//SIGSEGV
+		for (unsigned int i = 0; i < sizeof(SignalList)/sizeof(int); i++)
+		{
+			struct event *signal_event = evsignal_new(base, SignalList[i], signal_cb, NULL);
+
+			if (!signal_event || event_add(signal_event, NULL)<0) {
+				fprintf(stderr, "Could not create/add a signal event! %d\n", SignalList[i]);
+				return;
+			}
+			allSignalEvent.push_back(signal_event);
 		}
 	}	
 
@@ -84,7 +93,12 @@ namespace engine_base {
 	void release()
 	{
 		evconnlistener_free(clientListener);
-		event_free(signal_event);
+		std::vector<struct event*>::iterator it = allSignalEvent.begin();
+		for (; it != allSignalEvent.end(); it++)
+		{
+			event_free(*it);
+		}
+		allSignalEvent.clear();
 		event_free(timeout);
 		event_base_free(base);
 		

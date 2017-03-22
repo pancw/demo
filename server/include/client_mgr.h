@@ -21,6 +21,12 @@
 #include <map>
 #include <cstdlib>
 
+extern "C" {
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+}
+
 namespace mgr {
 
 	const unsigned char StatusReadHeader = 1;
@@ -72,6 +78,11 @@ public:
 		return this->bev;
 	}
 
+	unsigned int getVfd()
+	{
+		return this->vfd;
+	}
+
 private:
 	struct bufferevent *bev;
 	unsigned int vfd;
@@ -83,6 +94,7 @@ private:
 extern std::map<unsigned int, Client*> allClients;
 extern void newUserConnect(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *sock, int socklen, void *user_data);
 extern void release();
+extern void luaopen_netlib(lua_State* L);
 
 }
 
