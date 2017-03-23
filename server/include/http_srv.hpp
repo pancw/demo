@@ -7,7 +7,7 @@
 #include <string.h>
 #include <lua.hpp>
 
-namespace pack_httpsrv {
+namespace httpsrv {
 	extern void startHttpSrv(int);
 	extern void release();
 }

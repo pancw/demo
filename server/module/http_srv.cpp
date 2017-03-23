@@ -11,7 +11,7 @@
 #include "evhttp.h"
 
 extern lua_State *GlobalL;   //lua的解释器对象
-namespace pack_httpsrv {
+namespace httpsrv {
 
 	struct evhttp *httpd = NULL;
 	void httpd_handler(struct evhttp_request *req, void *arg) 

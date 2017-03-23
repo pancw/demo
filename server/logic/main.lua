@@ -2,6 +2,7 @@ msgpack = require "common.MessagePack"
 
 CONFIG_TBL = {
 	port = 1228,
+	http_port = 1328,
 }
 
 function __G__TRACKBACK__(msg)
@@ -23,6 +24,10 @@ end
 function handle_event(vfd, msg)
 	print("====",vfd ,msg)
 	lnet.send(vfd, "haha")
+end
+
+function onHttpRequest(reqInfo, paramTbl, ip)
+	return HTTP_SRV.onHttpRequest(reqInfo, paramTbl, ip)	
 end
 
 local DOFILELIST = 

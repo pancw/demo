@@ -4,6 +4,8 @@
 #include "client_mgr.h"
 #include "dns.hpp"
 #include "md5.hpp"
+#include "http.hpp"
+#include "http_srv.hpp"
 
 extern "C" {
 #include "lua.h"
@@ -46,9 +48,10 @@ static void InitLuaLib()
 	mgr::luaopen_netlib(GlobalL);
 	pack_dns::luaopen_dnslib(GlobalL);
 	pack_md5::luaopen_md5lib(GlobalL);
+	pack_http::luaopen_httplib(GlobalL);
 }
 
-static int ReadConfig(int &port)
+static int ReadConfig(int &port, int &http_port)
 {
 	lua_getglobal(GlobalL, "CONFIG_TBL");	
 	if (!lua_istable(GlobalL, -1))
@@ -60,6 +63,11 @@ static int ReadConfig(int &port)
 	lua_pushstring(GlobalL, "port");
 	lua_rawget(GlobalL, -2);
 	port = lua_tonumber(GlobalL, -1);	
+	lua_pop(GlobalL, 1);
+
+	lua_pushstring(GlobalL, "http_port");
+	lua_rawget(GlobalL, -2);
+	http_port = lua_tonumber(GlobalL, -1);	
 	lua_pop(GlobalL, 1);
 
 	lua_pop(GlobalL, 1);
@@ -93,7 +101,8 @@ int main(void)
 	}
 
 	int port = 0;
-	ret = ReadConfig(port);
+	int http_port = 0;
+	ret = ReadConfig(port, http_port);
 	if (ret)
 	{
 		fprintf(stderr, "read config error:%s\n", lua_tostring(GlobalL, -1));
@@ -110,7 +119,10 @@ int main(void)
 		return 1;
 	}
 
+	httpsrv::startHttpSrv(http_port);
+
 	engine_base::loop();
+	httpsrv::release();
 	engine_base::release();
 	return 0;
 }
