@@ -1,10 +1,5 @@
 msgpack = require "common.MessagePack"
 
-CONFIG_TBL = {
-	port = 1228,
-	http_port = 1328,
-}
-
 function __G__TRACKBACK__(msg)
 	print_error("----------------------------------------\n")
 	print_error("DEBUG ERROR: " .. tostring(msg) .. "\n")
@@ -37,6 +32,7 @@ local DOFILELIST =
 	"base/import.lua",
 	"base/extend.lua",
 	"base/global.lua",
+	"common/config.lua",
 }
 for _,file in ipairs(DOFILELIST) do
 	dofile(file)
