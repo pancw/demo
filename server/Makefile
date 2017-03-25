@@ -6,22 +6,25 @@ MBITS=32
 endif
 
 ROOT=.
-EXTLIB=$(ROOT)/../extlib/install
 
-LIBEVENT=$(EXTLIB)/libevent/lib/libevent.a $(EXTLIB)/libevent/lib/libevent_core.a \
-	$(EXTLIB)/libevent/lib/libevent_extra.a $(EXTLIB)/libevent/lib/libevent_pthreads.a
+SRC=main.cpp \
+	engine_base.cpp \
+	client_mgr.cpp \
+	module/dns.cpp \
+	module/md5.cpp \
+	module/http.cpp \
+	module/http_srv.cpp \
+	module/lmongoc.cpp
 
-LIBLUA=$(EXTLIB)/lua/lib/liblua.a
-
-FLAG= -g -std=c++11 -m$(MBITS) -Wall -o0
-CPPFLAGS=$(FLAG) -I $(EXTLIB)/lua/include -I $(EXTLIB)/libevent/include -I include
-
-SRC=main.cpp engine_base.cpp client_mgr.cpp module/dns.cpp module/md5.cpp module/http.cpp module/http_srv.cpp
-OBJ=$(subst .cpp,.o,$(SRC))
+-include $(ROOT)/Makefile.conf
 
 ENGINE_BIN=$(ROOT)/bin/game_server
 
-all:$(ENGINE_BIN)
+CPPFLAGS=$(FLAG) -I $(ROOT)/include
+
+all:.dep $(ENGINE_BIN)
+
+-include .dep
 
 $(ENGINE_BIN):$(OBJ) $(LIBEVENT) $(LIBLUA)
 	$(CXX) $(CPPFLAGS) -o $@ $^ -lssl -lrt -ldl
