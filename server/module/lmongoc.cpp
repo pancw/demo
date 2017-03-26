@@ -19,12 +19,6 @@ namespace lmongodb {
 
 		client = mongoc_client_new ("mongodb://localhost:1238");	
 
-		/*
-		* Register the application name so we can track it in the profile logs
-		* on the server. This can also be done from the URI (see other examples).
-		*/
-		//mongoc_client_set_appname (client, "connect-example");
-
 		database = mongoc_client_get_database (client, "pancw");	
 		collection = mongoc_client_get_collection (client, "pancw", "user");
 

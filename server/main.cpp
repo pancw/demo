@@ -6,7 +6,7 @@
 #include "md5.hpp"
 #include "http.hpp"
 #include "http_srv.hpp"
-#include "lmongoc.h"
+//#include "lmongoc.h"
 
 extern "C" {
 #include "lua.h"
@@ -86,8 +86,8 @@ int main(void)
 	engine_base::init();
 	InitLuaLib();
 
-	int dbPort = 1238;
-	lmongodb::mongo_init(dbPort);
+	//int dbPort = 1238;
+	//lmongodb::mongo_init(dbPort);
 
 	lua_pushcclosure(GlobalL, error_fun, 0);
 	int err = luaL_loadfile(GlobalL, "main.lua");	
