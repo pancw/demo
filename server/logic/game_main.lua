@@ -16,7 +16,7 @@ function Init()
 	local dnsName = "openapi.baidu.com"
 	local url = string.format("/oauth/2.0/token?grant_type=client_credentials&client_id=%s&client_secret=%s", API_KEY, SECRET_KEY)
 	local function getIp(ip)
-		print("ip:", ip)
+		print("----------------ip:", ip)
 		HTTP.httpGet(ip, dnsName, 80, url, onRet)
 	end
 	HTTP.resolve(dnsName, getIp)

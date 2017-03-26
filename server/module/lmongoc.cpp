@@ -17,7 +17,7 @@ namespace lmongodb {
 
 		mongoc_init();
 
-		client = mongoc_client_new ("mongodb://localhost:1238");	
+		client = mongoc_client_new ("mongodb://119.29.223.188:1238");	
 
 		database = mongoc_client_get_database (client, "pancw");	
 		collection = mongoc_client_get_collection (client, "pancw", "user");

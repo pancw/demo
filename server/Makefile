@@ -13,9 +13,8 @@ SRC=main.cpp \
 	module/dns.cpp \
 	module/md5.cpp \
 	module/http.cpp \
-	module/http_srv.cpp
-	
-#module/lmongoc.cpp
+	module/http_srv.cpp \
+	module/lmongoc.cpp
 
 -include $(ROOT)/Makefile.conf
 
@@ -27,8 +26,8 @@ all:.dep $(ENGINE_BIN)
 
 -include .dep
 
-$(ENGINE_BIN):$(OBJ) $(LIBEVENT) $(LIBLUA) #$(MONGOC)
-	$(CXX) $(CPPFLAGS) -o $@ $^ -lssl -lrt -ldl #-lpthread -lcrypto 
+$(ENGINE_BIN):$(OBJ) $(LIBEVENT) $(LIBLUA) $(MONGOC)
+	$(CXX) $(CPPFLAGS) -o $@ $^ -lrt -ldl -lssl -lpthread -lcrypto
 
 clean:
 	find . -name "*.o" -delete
