@@ -27,7 +27,7 @@ all:.dep $(ENGINE_BIN)
 -include .dep
 
 $(ENGINE_BIN):$(OBJ) $(LIBEVENT) $(LIBLUA) $(MONGOC)
-	$(CXX) $(CPPFLAGS) -o $@ $^ -lrt -ldl -lssl -lpthread -lcrypto
+	$(CXX) $(CPPFLAGS) -o $@ $^ -Wl,-dn -lssl -lcrypto -Wl,-dy -lpthread -lrt -ldl
 
 clean:
 	find . -name "*.o" -delete
